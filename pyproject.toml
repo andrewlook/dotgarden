@@ -1,0 +1,63 @@
+[build-system]
+build-backend = "hatchling.build"
+requires = ["hatchling"]
+
+[project]
+authors = [
+  {name = "Andrew Look"}
+]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: MacOS",
+  "Operating System :: POSIX :: Linux",
+  "Programming Language :: Python :: 3",
+  "Topic :: System :: Installation/Setup",
+  "Topic :: Utilities"
+]
+dependencies = [
+  "pyyaml >= 6.0"
+]
+description = "Manage dotfiles: register configs, bootstrap symlinks, and keep everything in sync."
+license = "MIT"
+name = "dotgarden"
+readme = "README.md"
+requires-python = ">=3.10"
+version = "0.3.0"
+
+[project.optional-dependencies]
+test = ["pytest"]
+
+[project.scripts]
+dotfile = "dotgarden.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/andrewlook/dotgarden"
+Repository = "https://github.com/andrewlook/dotgarden"
+
+[tool.hatch.build.targets.sdist]
+exclude = [
+  "/.gitignore"
+]
+# Strict allowlist. Hatchling's default sdist walks up the directory tree for
+# metadata files (notably .gitignore) and bundles them in — which in a
+# monorepo leaks the parent repo's ignore patterns into the published
+# tarball. Pinning the allowlist + an explicit .gitignore exclude keeps the
+# sdist contents predictable regardless of what directory uv build runs from.
+include = [
+  "/dotgarden",
+  "/tests",
+  "/pyproject.toml",
+  "/README.md",
+  "/LICENSE"
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["dotgarden"]
+
+[tool.pytest.ini_options]
+# Put the package dir on sys.path so `from dotgarden import ...` works without
+# an editable install. Paths resolve relative to this pyproject.toml.
+pythonpath = ["."]
