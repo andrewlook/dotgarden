@@ -209,6 +209,67 @@ def discover_bootstrap_managed(dotfiles_dir, home_dir, registry_data):
     return entries
 
 
+def discover_overlay_managed(overlay_dir, home_dir, os_type):
+    """Discover overlay-contributed entries for status reporting.
+
+    Mirrors bootstrap's overlay phase without side effects: emits entries for
+    every bare root dotfile in the overlay (renamed to `.<profile>.<basename>`
+    at link time) plus every entry in the overlay's own `__registry__.yaml`.
+
+    Entries use **absolute** `repo_path` values so `check_status` resolves
+    them against the overlay, not the main dotfiles_dir. Overlay entries all
+    carry `profile: <overlay_profile>` so status groups them under that
+    profile's `[work]` (or whatever) tag.
+
+    Returns [] when the overlay is missing, unreadable, or has no entries.
+    """
+    if not overlay_dir or not os.path.isdir(overlay_dir):
+        return []
+    try:
+        overlay_profile = _read_overlay_profile(overlay_dir)
+    except reg.RegistryError:
+        return []
+
+    entries = []
+    exclude_files = _compose_exclude_files(None, overlay_dir)
+
+    # Bare root dotfiles: '.gitconfig' → '~/.work.gitconfig' at link time.
+    for fname in list_dotfiles(overlay_dir, exclude=exclude_files):
+        if is_os_specific(fname) or is_profile_specific(fname):
+            # _link_root_dotfiles rejects these with reject_variants=True.
+            # Skip silently here; bootstrap surfaces the error.
+            continue
+        stripped = fname[1:] if fname.startswith('.') else fname
+        renamed = f'.{overlay_profile}.{stripped}'
+        entries.append(
+            {
+                'id': f'(overlay) {fname}',
+                'source_path': f'~/{renamed}',
+                'repo_path': os.path.join(overlay_dir, fname),
+                'category': None,
+                'os': os_type if os_type else None,
+                'profile': overlay_profile,
+                'managed_by': 'bootstrap',
+            }
+        )
+
+    # Overlay registry: everything declared in overlay/__registry__.yaml.
+    reg_path = os.path.join(overlay_dir, REGISTRY_FILENAME)
+    try:
+        overlay_registry = reg.load(reg_path)
+    except (reg.RegistryError, yaml.YAMLError, KeyError):
+        return entries
+
+    for entry in overlay_registry.get('registered_files', []):
+        # Overlay-declared entries inherit the overlay's implicit profile.
+        new_entry = dict(entry)
+        new_entry['repo_path'] = os.path.join(overlay_dir, entry['repo_path'])
+        new_entry['profile'] = overlay_profile
+        entries.append(new_entry)
+
+    return entries
+
+
 def _read_overlay_profile(overlay_dir):
     """Load the overlay's `__registry__.yaml` and return its declared profile.
 

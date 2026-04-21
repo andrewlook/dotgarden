@@ -218,8 +218,9 @@ def cmd_status(args):
     bootstrap_entries = symlinks.discover_bootstrap_managed(dotfiles_dir, home_dir, registry)
 
     os_type, profile, overlay_dir = config.read_dotfiles_env(home_dir)
+    overlay_abs = os.path.expanduser(overlay_dir) if overlay_dir else None
     if overlay_dir:
-        overlay_exists = os.path.isdir(os.path.expanduser(overlay_dir))
+        overlay_exists = overlay_abs is not None and os.path.isdir(overlay_abs)
         flag = '' if overlay_exists else ' \033[33m(missing)\033[0m'
         print(f'  \033[2moverlay:\033[0m {overlay_dir}{flag}\n')
     filtered_registered = []
@@ -232,7 +233,9 @@ def cmd_status(args):
             continue
         filtered_registered.append(entry)
 
-    all_entries = bootstrap_entries + filtered_registered
+    overlay_entries = symlinks.discover_overlay_managed(overlay_abs, home_dir, os_type)
+
+    all_entries = bootstrap_entries + filtered_registered + overlay_entries
 
     if not all_entries:
         print('No managed files.')
@@ -250,7 +253,6 @@ def cmd_status(args):
     local_statuses = {}
     all_local_statuses = {}
     if os_type:
-        overlay_abs = os.path.expanduser(overlay_dir) if overlay_dir else None
         for info in symlinks.get_local_status(
             dotfiles_dir, home_dir, os_type, profile, overlay_dir=overlay_abs
         ):

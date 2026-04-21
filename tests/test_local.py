@@ -15,6 +15,7 @@ from dotgarden.config import (
 from dotgarden.symlinks import (
     build_local_contents,
     check_local_health,
+    discover_overlay_managed,
     find_variant_files,
     generate_local_files,
     get_local_status,
@@ -388,6 +389,88 @@ class TestGetLocalStatusWithOverlay(unittest.TestCase):
 
         info = next(r for r in results if r['dotfile'] == '.zprofile')
         assert info['local_fresh']
+
+
+# -- discover_overlay_managed --
+
+
+class TestDiscoverOverlayManaged(unittest.TestCase):
+    """Overlay entries should surface in `dotfile status` under the overlay's profile."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+        self.home = os.path.join(self.tmpdir, 'home')
+        self.overlay = os.path.join(self.tmpdir, 'overlay')
+        os.makedirs(self.home)
+        os.makedirs(self.overlay)
+
+    def tearDown(self):
+        shutil.rmtree(self.tmpdir)
+
+    def _write_overlay_registry(self, profile='work', extra=None):
+        data = {'version': '3.0', 'profile': profile}
+        if extra:
+            data.update(extra)
+        with open(os.path.join(self.overlay, '__registry__.yaml'), 'w') as f:
+            yaml.safe_dump(data, f, sort_keys=False)
+
+    def _touch_overlay(self, *names):
+        for name in names:
+            path = os.path.join(self.overlay, name)
+            os.makedirs(os.path.dirname(path) or self.overlay, exist_ok=True)
+            with open(path, 'w') as f:
+                f.write(f'# {name}\n')
+
+    def test_bare_root_dotfile_surfaces_with_rename(self):
+        self._write_overlay_registry(profile='work')
+        self._touch_overlay('.gitconfig', '.zprofile')
+
+        entries = discover_overlay_managed(self.overlay, self.home, 'macos')
+
+        by_source = {e['source_path']: e for e in entries}
+        assert '~/.work.gitconfig' in by_source
+        assert '~/.work.zprofile' in by_source
+        for entry in entries:
+            assert entry['managed_by'] == 'bootstrap'
+            assert entry['profile'] == 'work'
+            assert os.path.isabs(entry['repo_path'])
+
+    def test_overlay_registry_entries_included(self):
+        self._write_overlay_registry(
+            profile='work',
+            extra={'boxy': [{'_boxy/init.sh': '~/.boxy/profile/init.sh'}]},
+        )
+        self._touch_overlay('_boxy/init.sh')
+
+        entries = discover_overlay_managed(self.overlay, self.home, 'macos')
+
+        boxy = [e for e in entries if e.get('category') == 'boxy']
+        assert len(boxy) == 1
+        assert boxy[0]['source_path'] == '~/.boxy/profile/init.sh'
+        assert boxy[0]['repo_path'] == os.path.join(self.overlay, '_boxy/init.sh')
+        assert boxy[0]['profile'] == 'work'
+
+    def test_missing_overlay_returns_empty(self):
+        assert discover_overlay_managed(None, self.home, 'macos') == []
+        assert discover_overlay_managed('/nonexistent', self.home, 'macos') == []
+
+    def test_malformed_overlay_registry_returns_empty(self):
+        # No __registry__.yaml in the overlay → can't determine profile.
+        self._touch_overlay('.gitconfig')
+        assert discover_overlay_managed(self.overlay, self.home, 'macos') == []
+
+    def test_prefixed_overlay_filenames_are_skipped(self):
+        # Overlays must use bare filenames; bootstrap rejects prefixes.
+        # discover skips them silently (bootstrap surfaces the error).
+        self._write_overlay_registry(profile='work')
+        self._touch_overlay('.gitconfig', '.macos.zprofile', '.work.zshrc')
+
+        entries = discover_overlay_managed(self.overlay, self.home, 'macos')
+
+        sources = {e['source_path'] for e in entries}
+        assert '~/.work.gitconfig' in sources
+        assert not any('macos.zprofile' in s for s in sources)
+        assert not any('work.zshrc' in s and '.work.' not in s[3:] for s in sources)
 
 
 if __name__ == '__main__':
