@@ -250,7 +250,10 @@ def cmd_status(args):
     local_statuses = {}
     all_local_statuses = {}
     if os_type:
-        for info in symlinks.get_local_status(dotfiles_dir, home_dir, os_type, profile):
+        overlay_abs = os.path.expanduser(overlay_dir) if overlay_dir else None
+        for info in symlinks.get_local_status(
+            dotfiles_dir, home_dir, os_type, profile, overlay_dir=overlay_abs
+        ):
             local_statuses[info['dotfile']] = info
             all_local_statuses[info['dotfile']] = info
 

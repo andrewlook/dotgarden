@@ -6,15 +6,18 @@ import tempfile
 import unittest
 
 import pytest
+import yaml
 from dotgarden.config import (
     format_local_include,
     is_os_specific,
     is_profile_specific,
 )
 from dotgarden.symlinks import (
+    build_local_contents,
     check_local_health,
     find_variant_files,
     generate_local_files,
+    get_local_status,
 )
 
 # -- is_os_specific / is_profile_specific --
@@ -253,6 +256,138 @@ class TestCheckLocalHealth(unittest.TestCase):
 
         issues = check_local_health(self.repo, self.home, 'macos')
         assert any('does not include' in issue for _, issue in issues)
+
+
+# -- get_local_status with overlay --
+
+
+class TestGetLocalStatusWithOverlay(unittest.TestCase):
+    """Overlay-contributed variants should not make a healthy .local look stale.
+
+    When an overlay declares `profile: work` and contributes a bare `.gitconfig`,
+    bootstrap links it as `.work.gitconfig` and rebuilds `.gitconfig.local` to
+    include it. `get_local_status` needs to consider that overlay-rename the
+    same way, or it thinks the `.local` is missing an entry and flags a false ⚠.
+    """
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+        self.repo = os.path.join(self.tmpdir, 'dotfiles')
+        self.home = os.path.join(self.tmpdir, 'home')
+        self.overlay = os.path.join(self.tmpdir, 'overlay')
+        os.makedirs(self.repo)
+        os.makedirs(self.home)
+        os.makedirs(self.overlay)
+
+    def tearDown(self):
+        shutil.rmtree(self.tmpdir)
+
+    def _touch(self, directory, *names):
+        for name in names:
+            with open(os.path.join(directory, name), 'w') as f:
+                f.write(f'# {name}\n')
+
+    def _overlay_registry(self, profile='work'):
+        data = {'version': '3.0', 'profile': profile}
+        with open(os.path.join(self.overlay, '__registry__.yaml'), 'w') as f:
+            yaml.safe_dump(data, f, sort_keys=False)
+
+    def _write_local_for(self, base_dotfile, variants):
+        """Write the home .local file matching the expected merged contents."""
+        local_path = os.path.join(self.home, f'{base_dotfile}.local')
+        with open(local_path, 'w') as f:
+            f.write(build_local_contents(base_dotfile, variants))
+
+    def _write_base_including_local(self, base_dotfile):
+        """Write a home base file that includes its .local (so the chain is healthy)."""
+        include = format_local_include('shell', f'{base_dotfile}.local')
+        if base_dotfile == '.gitconfig':
+            include = format_local_include('git', f'{base_dotfile}.local')
+        elif base_dotfile == '.tmux.conf':
+            include = format_local_include('tmux', f'{base_dotfile}.local')
+        with open(os.path.join(self.home, base_dotfile), 'w') as f:
+            f.write(include + '\n')
+
+    def test_overlay_bare_file_treated_as_profile_variant(self):
+        # Main repo has a base .gitconfig but no profile variants.
+        self._touch(self.repo, '.gitconfig')
+        # Overlay declares profile: work and contributes bare .gitconfig.
+        self._overlay_registry(profile='work')
+        self._touch(self.overlay, '.gitconfig')
+        # Simulate bootstrap output: .local file including .work.gitconfig,
+        # and a base .gitconfig that includes .gitconfig.local.
+        self._write_local_for('.gitconfig', ['.work.gitconfig'])
+        self._write_base_including_local('.gitconfig')
+
+        results = get_local_status(
+            self.repo, self.home, 'macos', profile='work', overlay_dir=self.overlay
+        )
+
+        assert len(results) == 1
+        info = results[0]
+        assert info['dotfile'] == '.gitconfig'
+        assert info['local_exists']
+        assert info['local_fresh']
+        assert info['base_includes_local']
+        assert info['issues'] == []
+
+    def test_overlay_variant_merges_with_main_variants(self):
+        # Main has a macos variant for .zprofile; overlay contributes its own.
+        self._touch(self.repo, '.zprofile', '.macos.zprofile')
+        self._overlay_registry(profile='work')
+        self._touch(self.overlay, '.zprofile')
+        # Local file must list BOTH variants for freshness to pass.
+        self._write_local_for('.zprofile', ['.macos.zprofile', '.work.zprofile'])
+        self._write_base_including_local('.zprofile')
+
+        results = get_local_status(
+            self.repo, self.home, 'macos', profile='work', overlay_dir=self.overlay
+        )
+
+        info = next(r for r in results if r['dotfile'] == '.zprofile')
+        assert info['local_fresh']
+        assert info['issues'] == []
+
+    def test_without_overlay_arg_local_looks_stale(self):
+        # Same setup as the first test, but caller forgot to pass overlay_dir.
+        # The .local file references .work.gitconfig, which the function can't
+        # explain without overlay context — so it flags stale. This is the
+        # regression this fix prevents.
+        self._touch(self.repo, '.gitconfig')
+        self._overlay_registry(profile='work')
+        self._touch(self.overlay, '.gitconfig')
+        self._write_local_for('.gitconfig', ['.work.gitconfig'])
+        self._write_base_including_local('.gitconfig')
+
+        results = get_local_status(self.repo, self.home, 'macos', profile='work')
+
+        # No variants known → .gitconfig isn't even in the results.
+        assert not any(r['dotfile'] == '.gitconfig' for r in results)
+
+    def test_malformed_overlay_does_not_crash(self):
+        # Overlay is missing __registry__.yaml — we should fall through to
+        # main-only variants rather than raising (bootstrap surfaces the error).
+        self._touch(self.repo, '.zprofile', '.macos.zprofile')
+        self._touch(self.overlay, '.gitconfig')  # no registry
+        self._write_local_for('.zprofile', ['.macos.zprofile'])
+        self._write_base_including_local('.zprofile')
+
+        results = get_local_status(self.repo, self.home, 'macos', overlay_dir=self.overlay)
+
+        info = next(r for r in results if r['dotfile'] == '.zprofile')
+        assert info['local_fresh']
+        assert info['issues'] == []
+
+    def test_overlay_dir_missing_is_ignored(self):
+        # overlay_dir points at a path that doesn't exist — treat as no overlay.
+        self._touch(self.repo, '.zprofile', '.macos.zprofile')
+        self._write_local_for('.zprofile', ['.macos.zprofile'])
+        self._write_base_including_local('.zprofile')
+
+        results = get_local_status(self.repo, self.home, 'macos', overlay_dir='/nonexistent/path')
+
+        info = next(r for r in results if r['dotfile'] == '.zprofile')
+        assert info['local_fresh']
 
 
 if __name__ == '__main__':

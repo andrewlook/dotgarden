@@ -786,8 +786,13 @@ def generate_local_files(dotfiles_dir, home_dir, os_type, profile=None, dry_run=
     return results
 
 
-def get_local_status(dotfiles_dir, home_dir, os_type, profile=None):
+def get_local_status(dotfiles_dir, home_dir, os_type, profile=None, overlay_dir=None):
     """Get detailed .local file status for dotfiles with OS/profile variants.
+
+    When `overlay_dir` is provided, overlay content contributes profile-variant
+    entries the same way bootstrap treats them — so a `.local` file that
+    includes overlay-renamed files (e.g. `.work.gitconfig` from an overlay's
+    bare `.gitconfig`) doesn't get flagged as stale by the freshness check.
 
     Returns a list of dicts, one per specialized dotfile:
     {
@@ -802,6 +807,19 @@ def get_local_status(dotfiles_dir, home_dir, os_type, profile=None):
     """
     results = []
     variants = find_variant_files(dotfiles_dir, os_type, profile)
+    if overlay_dir and os.path.isdir(overlay_dir):
+        # Mirror bootstrap's _collect_variants merge: overlay's bare `.foo`
+        # contributes `.<profile>.foo` as a variant of `.foo`.
+        try:
+            overlay_profile = _read_overlay_profile(overlay_dir)
+            overlay_variants = _collect_overlay_variants(
+                overlay_dir, overlay_profile, list(NOT_DOTFILES)
+            )
+            for base, vlist in overlay_variants.items():
+                variants[base] = list(dict.fromkeys(variants.get(base, []) + vlist))
+        except reg.RegistryError:
+            # Malformed overlay — let bootstrap report. Don't double-warn here.
+            pass
 
     for base_dotfile, variant_list in sorted(variants.items()):
         local_name = f'{base_dotfile}.local'
