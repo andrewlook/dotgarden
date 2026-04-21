@@ -1,0 +1,12 @@
+version: '3.0'
+os:
+- macos
+- linux
+profiles:
+- work
+- home
+fish:
+- _fish/config.fish: ~/.config/fish/config.fish
+ghostty:
+  macos:
+  - .config/ghostty/config: ~/.config/ghostty/config

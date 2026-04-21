@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# Build the integration-test image and run the bash harness inside it.
+# Usage:
+#   ./test-docker              # build + run tests/integration/run-all.sh
+#   ./test-docker --shell      # build + drop into an interactive shell
+#   ./test-docker --rebuild    # force a no-cache rebuild, then run
+set -euo pipefail
+
+REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+IMAGE="dotgarden-test"
+
+build_args=()
+action="run"
+
+for arg in "$@"; do
+    case "$arg" in
+        --rebuild) build_args+=("--no-cache") ;;
+        --shell)   action="shell" ;;
+        -h|--help)
+            sed -n '3,7p' "$0"
+            exit 0
+            ;;
+        *)
+            echo "unknown arg: $arg" >&2
+            exit 1
+            ;;
+    esac
+done
+
+echo "=== Building $IMAGE ==="
+docker build "${build_args[@]}" -f "$REPO_DIR/Dockerfile.test" -t "$IMAGE" "$REPO_DIR"
+
+case "$action" in
+    shell)
+        echo ""
+        echo "=== Interactive shell ==="
+        docker run --rm -it "$IMAGE" bash
+        ;;
+    run)
+        echo ""
+        echo "=== Running integration tests ==="
+        docker run --rm "$IMAGE"
+        ;;
+esac

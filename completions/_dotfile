@@ -1,0 +1,75 @@
+#compdef dotfile
+
+# Zsh completion for dotfile command
+
+_dotfile() {
+    local curcontext="$curcontext" state line
+    typeset -A opt_args
+
+    _arguments -C \
+        '1: :->command' \
+        '*::arg:->args'
+
+    case $state in
+        command)
+            local -a subcommands
+            subcommands=(
+                'register:Register a file or directory'
+                'list:List all managed files'
+                'status:Check health of all managed symlinks'
+                'unregister:Unregister a file'
+                'ids:Print registered entry IDs'
+                'env:Print current OS, profile, and overlay'
+                'doctor:Find and remove stale symlinks'
+                'bootstrap:Bootstrap dotfiles on a new system'
+            )
+            _describe -t commands 'dotfile command' subcommands
+            ;;
+        args)
+            case $line[1] in
+                register)
+                    _arguments \
+                        '--category[Category for organization]:category:' \
+                        '--os[OS restriction]:os:(macos linux)' \
+                        '--profile[Profile restriction]:profile:(work home)' \
+                        '--name[Custom name in repo]:name:' \
+                        '--dry-run[Show preview without making changes]' \
+                        '--force[Overwrite existing entries]' \
+                        '*:file:_files'
+                    ;;
+                list)
+                    _arguments \
+                        '--json[Output as JSON]'
+                    ;;
+                status)
+                    # No additional arguments
+                    ;;
+                unregister)
+                    # Complete with registered file IDs
+                    local -a registered_ids
+                    registered_ids=(${(f)"$(dotfile ids 2>/dev/null)"})
+                    _arguments \
+                        '--dry-run[Show what would happen without making changes]' \
+                        '--no-restore[Do not copy file back to original location]' \
+                        '--keep-symlink[Keep symlink in place (only with --no-restore)]' \
+                        '--keep-file[Keep file in repo (only with --no-restore)]' \
+                        "1:entry_id:(${registered_ids})"
+                    ;;
+                doctor)
+                    _arguments \
+                        '--dry-run[Show stale symlinks without removing]'
+                    ;;
+                bootstrap)
+                    _arguments \
+                        '--os[Operating system]:os:(macos linux)' \
+                        '--profile[Profile]:profile:(work home)' \
+                        '--skip-registry[Skip registered files, only bootstrap common/OS/profile]' \
+                        '--overlay[Path to overlay directory with additional dotfiles]:overlay:_files -/' \
+                        '--dry-run[Show what would be done without making changes]'
+                    ;;
+            esac
+            ;;
+    esac
+}
+
+_dotfile "$@"

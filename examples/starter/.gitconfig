@@ -1,0 +1,30 @@
+# {{{ Includes
+# OS and profile overrides, managed by `dotfile bootstrap`.
+# See docs: https://github.com/andrewlook/dotgarden
+[include]
+    path = .gitconfig.local
+# }}}
+
+[core]
+    editor = vim
+    pager = less
+    excludesfile = ~/.gitignore
+
+[init]
+    defaultBranch = main
+
+[pull]
+    rebase = true
+
+[push]
+    default = current
+    autoSetupRemote = true
+
+[alias]
+    s = status
+    co = checkout
+    br = branch
+    ci = commit
+    d = diff
+    dc = diff --cached
+    lg = log --oneline --graph --decorate -20
