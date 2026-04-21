@@ -877,5 +877,51 @@ class TestDotfileHomeOverride(unittest.TestCase):
         assert os.path.realpath(os.environ['HOME']) == os.path.realpath(nested)
 
 
+class TestColorizeTarget(unittest.TestCase):
+    """Status command target-path colorizer routes by which base dir owns the path."""
+
+    def setUp(self):
+        from dotgarden.cli.commands.status import _REPO_COLOR, _RESET, _colorize_target
+
+        self.colorize = _colorize_target
+        self.repo_color = _REPO_COLOR
+        self.reset = _RESET
+        self.overlay_color = '\033[38;5;215m'
+
+    def test_main_repo_path_uses_repo_color(self):
+        result = self.colorize('~/dotfiles/.aliases', '~/dotfiles', None, None)
+        assert result == f'{self.repo_color}~/dotfiles/.aliases{self.reset}'
+
+    def test_overlay_path_uses_overlay_color(self):
+        result = self.colorize(
+            '~/tools/dotfiles-work/.gitconfig',
+            '~/dotfiles',
+            '~/tools/dotfiles-work',
+            self.overlay_color,
+        )
+        assert result == (
+            f'{self.overlay_color}~/tools/dotfiles-work/.gitconfig{self.reset}'
+        )
+
+    def test_path_under_neither_stays_uncolored(self):
+        result = self.colorize(
+            '~/other/thing', '~/dotfiles', '~/tools/dotfiles-work', self.overlay_color
+        )
+        assert result == '~/other/thing'
+
+    def test_main_repo_takes_precedence_over_overlay(self):
+        # Pathological case: overlay path is a prefix of main repo path. The
+        # main repo branch matches first, which is the right answer.
+        result = self.colorize('~/dotfiles/.aliases', '~/dotfiles', '~/dot', self.overlay_color)
+        assert self.repo_color in result
+
+    def test_no_overlay_color_leaves_overlay_paths_uncolored(self):
+        # Overlay dir set but profile couldn't be resolved → color is None.
+        result = self.colorize(
+            '~/tools/dotfiles-work/.gitconfig', '~/dotfiles', '~/tools/dotfiles-work', None
+        )
+        assert result == '~/tools/dotfiles-work/.gitconfig'
+
+
 if __name__ == '__main__':
     unittest.main()
