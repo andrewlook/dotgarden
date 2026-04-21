@@ -106,20 +106,23 @@ def _find_shared_dir_prefix(paths_list):
 
 
 def _colorize_target(target_str, dotfiles_tilde, overlay_tilde, overlay_color):
-    """Color a target path by which base directory it's under.
+    """Color only the base-directory prefix of a target path.
 
-    Main-repo paths (under ~/dotfiles) use _REPO_COLOR; overlay paths use the
-    overlay profile's tag color so they match the `[work]` (or whatever) tag
-    elsewhere in the output. Paths outside both are left uncolored.
+    Just the `~/dotfiles` prefix (or the overlay equivalent) is colored, so
+    the repo identity stands out without tinting the path inside the repo.
     """
-    if target_str == dotfiles_tilde or target_str.startswith(dotfiles_tilde + '/'):
+    if target_str == dotfiles_tilde:
         return f'{_REPO_COLOR}{target_str}{_RESET}'
-    if (
-        overlay_tilde
-        and overlay_color
-        and (target_str == overlay_tilde or target_str.startswith(overlay_tilde + '/'))
-    ):
-        return f'{overlay_color}{target_str}{_RESET}'
+    if target_str.startswith(dotfiles_tilde + '/'):
+        return f'{_REPO_COLOR}{dotfiles_tilde}{_RESET}{target_str[len(dotfiles_tilde) :]}'
+    if overlay_tilde and overlay_color:
+        if target_str == overlay_tilde:
+            return f'{overlay_color}{target_str}{_RESET}'
+        if target_str.startswith(overlay_tilde + '/'):
+            return (
+                f'{overlay_color}{overlay_tilde}{_RESET}'
+                f'{target_str[len(overlay_tilde) :]}'
+            )
     return target_str
 
 

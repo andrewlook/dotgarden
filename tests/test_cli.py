@@ -888,11 +888,15 @@ class TestColorizeTarget(unittest.TestCase):
         self.reset = _RESET
         self.overlay_color = '\033[38;5;215m'
 
-    def test_main_repo_path_uses_repo_color(self):
+    def test_main_repo_prefix_colored_suffix_plain(self):
         result = self.colorize('~/dotfiles/.aliases', '~/dotfiles', None, None)
-        assert result == f'{self.repo_color}~/dotfiles/.aliases{self.reset}'
+        assert result == f'{self.repo_color}~/dotfiles{self.reset}/.aliases'
 
-    def test_overlay_path_uses_overlay_color(self):
+    def test_exact_main_repo_path_fully_colored(self):
+        result = self.colorize('~/dotfiles', '~/dotfiles', None, None)
+        assert result == f'{self.repo_color}~/dotfiles{self.reset}'
+
+    def test_overlay_prefix_colored_suffix_plain(self):
         result = self.colorize(
             '~/tools/dotfiles-work/.gitconfig',
             '~/dotfiles',
@@ -900,7 +904,7 @@ class TestColorizeTarget(unittest.TestCase):
             self.overlay_color,
         )
         assert result == (
-            f'{self.overlay_color}~/tools/dotfiles-work/.gitconfig{self.reset}'
+            f'{self.overlay_color}~/tools/dotfiles-work{self.reset}/.gitconfig'
         )
 
     def test_path_under_neither_stays_uncolored(self):
@@ -914,6 +918,8 @@ class TestColorizeTarget(unittest.TestCase):
         # main repo branch matches first, which is the right answer.
         result = self.colorize('~/dotfiles/.aliases', '~/dotfiles', '~/dot', self.overlay_color)
         assert self.repo_color in result
+        assert '.aliases' in result
+        assert self.overlay_color not in result
 
     def test_no_overlay_color_leaves_overlay_paths_uncolored(self):
         # Overlay dir set but profile couldn't be resolved → color is None.
