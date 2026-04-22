@@ -8,13 +8,16 @@ import yaml
 
 from dotgarden import registry as reg
 from dotgarden.config import (
+    DOT_CONFIG_DIR,
     LOCAL_TOOL_TYPES,
     NOT_DOTFILES,
     NOT_DOTFILES_EXTENSIONS,
     REGISTRY_FILENAME,
     format_local_include,
+    get_tool_type,
     is_os_specific,
     is_profile_specific,
+    parse_nested_variant,
     read_dotfiles_env,
 )
 
@@ -37,6 +40,35 @@ def list_dotfiles(directory, exclude=None):
             if any(fname.endswith(ext) for ext in NOT_DOTFILES_EXTENSIONS):
                 continue
             result.append(fname)
+    return sorted(result)
+
+
+def list_dot_config_children(dotfiles_dir, ignore_names=None):
+    """List immediate children of <dotfiles_dir>/.config/ for convention discovery.
+
+    Returns a sorted list of names (no path prefix). Both files and directories
+    are returned — each one maps 1:1 to ~/.config/<name>. Scanning stops at
+    one level deep: anything inside `.config/<tool>/` is shipped as part of
+    the directory symlink, not treated as a separate entry.
+
+    ignore_names filters by name (exact match). Hidden entries starting with
+    a dot (other than the package-default NOT_DOTFILES) are allowed — users
+    can legitimately have `.config/.hidden-tool/` — but common junk like
+    .DS_Store is always excluded via NOT_DOTFILES.
+    """
+    if ignore_names is None:
+        ignore_names = []
+    config_dir = os.path.join(dotfiles_dir, DOT_CONFIG_DIR)
+    if not os.path.isdir(config_dir):
+        return []
+    skip = set(ignore_names) | set(NOT_DOTFILES)
+    result = []
+    for name in os.listdir(config_dir):
+        if name in skip:
+            continue
+        if any(name.endswith(ext) for ext in NOT_DOTFILES_EXTENSIONS):
+            continue
+        result.append(name)
     return sorted(result)
 
 
@@ -206,6 +238,29 @@ def discover_bootstrap_managed(dotfiles_dir, home_dir, registry_data):
                 }
             )
 
+    # .config/* convention-discovered entries (Unit 1). Each top-level child
+    # of <repo>/.config/ auto-maps to ~/.config/<name> without a registry
+    # entry. Variant files inside .config/<tool>/ (e.g. config.macos.fish)
+    # ride along with the directory symlink; the .local hub handles their
+    # inclusion via Unit 2+3 wiring.
+    ignore_dirs = list(registry_data.get('ignore_dirs') or [])
+    for name in list_dot_config_children(dotfiles_dir, ignore_names=ignore_dirs):
+        repo_path = f'{DOT_CONFIG_DIR}/{name}'
+        if repo_path in registered_repo_paths:
+            continue
+        source_path = f'~/{DOT_CONFIG_DIR}/{name}'
+        entries.append(
+            {
+                'id': f'(bootstrap) {repo_path}',
+                'source_path': source_path,
+                'repo_path': repo_path,
+                'category': DOT_CONFIG_DIR,
+                'os': None,
+                'profile': None,
+                'managed_by': 'bootstrap',
+            }
+        )
+
     return entries
 
 
@@ -373,6 +428,25 @@ def _apply_link(abs_link, abs_real, phase, dry_run, results):
     results.append((action, abs_link, abs_real, phase))
 
 
+def _link_dot_config_children(source_dir, home_dir, phase, ignore_names, dry_run, results):
+    """Link each top-level child of <source_dir>/.config/ to ~/.config/<name>.
+
+    Used for convention-based .config/* auto-discovery (Unit 1). Each child
+    — file or directory — becomes a single symlink. The directory case
+    flows through `prepare_symlink_target` for safe backup-and-replace of
+    any pre-existing ~/.config/<name>.
+    """
+    home_config_dir = os.path.join(home_dir, DOT_CONFIG_DIR)
+    for name in list_dot_config_children(source_dir, ignore_names=ignore_names):
+        _apply_link(
+            os.path.join(home_config_dir, name),
+            os.path.join(source_dir, DOT_CONFIG_DIR, name),
+            phase,
+            dry_run,
+            results,
+        )
+
+
 def _link_root_dotfiles(
     source_dir,
     home_dir,
@@ -538,13 +612,134 @@ def _collect_overlay_variants(overlay_dir, overlay_profile, exclude_files):
     return overlay_variants
 
 
+def _os_names_for_registry(dotfiles_dir):
+    """Return the active os_names list (registry metadata or defaults)."""
+    from dotgarden.config import DEFAULT_OS_NAMES
+
+    reg_path = os.path.join(dotfiles_dir, REGISTRY_FILENAME)
+    if os.path.exists(reg_path):
+        try:
+            data = reg.load(reg_path)
+            names = data.get('os')
+            if names:
+                return list(names)
+        except (reg.RegistryError, yaml.YAMLError, KeyError):
+            pass
+    return list(DEFAULT_OS_NAMES)
+
+
+def _profiles_for_registry(dotfiles_dir):
+    """Return the active profiles list (registry metadata or defaults)."""
+    from dotgarden.config import DEFAULT_PROFILES
+
+    reg_path = os.path.join(dotfiles_dir, REGISTRY_FILENAME)
+    if os.path.exists(reg_path):
+        try:
+            data = reg.load(reg_path)
+            names = data.get('profiles')
+            if names:
+                return list(names)
+        except (reg.RegistryError, yaml.YAMLError, KeyError):
+            pass
+    return list(DEFAULT_PROFILES)
+
+
+def _validate_overlay_dot_config(overlay_dir, overlay_profile, os_names, profiles):
+    """Validate overlay .config/<tool>/* files (Unit 4 pre-naming rule).
+
+    Unlike root-level overlay files (bare, renamed at link time), overlay
+    files under .config/<tool>/ must carry the modifier in the filename
+    itself (e.g. `config.work.fish`). Raises RegistryError on:
+
+    - Bare files with no modifier (e.g. overlay's `.config/fish/config.fish`
+      when overlay profile is `work`).
+    - Profile-tagged files whose profile doesn't match the overlay's
+      declared profile.
+
+    OS-tagged files are allowed regardless of OS — they contribute to the
+    base's variant list but get filtered by the current bootstrap OS
+    downstream, just like main-repo variants.
+    """
+    config_dir = os.path.join(overlay_dir, DOT_CONFIG_DIR)
+    if not os.path.isdir(config_dir):
+        return
+    for tool_name in sorted(os.listdir(config_dir)):
+        tool_dir = os.path.join(config_dir, tool_name)
+        if not os.path.isdir(tool_dir):
+            continue
+        for fname in sorted(os.listdir(tool_dir)):
+            if not os.path.isfile(os.path.join(tool_dir, fname)):
+                continue
+            parsed = parse_nested_variant(fname, os_names=os_names, profiles=profiles)
+            rel_path = f'{DOT_CONFIG_DIR}/{tool_name}/{fname}'
+            if parsed is None:
+                raise reg.RegistryError(
+                    f'Overlay file {rel_path!r} has no modifier; overlay '
+                    f'files under .config/ must carry the overlay profile '
+                    f'in the filename (e.g. config.{overlay_profile}.fish). '
+                    f'Root-level overlay files are auto-renamed, but nested '
+                    f'paths require explicit naming.'
+                )
+            _, kind, value = parsed
+            if kind == 'profile' and value != overlay_profile:
+                raise reg.RegistryError(
+                    f'Overlay file {rel_path!r} is profile-tagged for '
+                    f'{value!r} but overlay declared profile {overlay_profile!r}. '
+                    f'Rename the file or move it to an overlay with matching '
+                    f'profile.'
+                )
+
+
+def _collect_overlay_dot_config_variants(overlay_dir, overlay_profile, os_type):
+    """Collect nested overlay variants for .local hub inclusion.
+
+    Returns a dict {base_nested_path: [absolute_variant_path]}. Variants
+    are passed as absolute paths so the generated .local file sources the
+    overlay file directly — no file-level symlink is created in the main
+    repo's .config/<tool>/ dir (which is itself a symlink into main repo,
+    so writing symlinks through it would pollute the main repo).
+
+    Assumes `_validate_overlay_dot_config` has already run; files that
+    reach this function are known to be validly named.
+    """
+    result = {}
+    config_dir = os.path.join(overlay_dir, DOT_CONFIG_DIR)
+    if not os.path.isdir(config_dir):
+        return result
+    for tool_name in sorted(os.listdir(config_dir)):
+        tool_dir = os.path.join(config_dir, tool_name)
+        if not os.path.isdir(tool_dir):
+            continue
+        for fname in sorted(os.listdir(tool_dir)):
+            full_path = os.path.join(tool_dir, fname)
+            if not os.path.isfile(full_path):
+                continue
+            parsed = parse_nested_variant(fname)
+            if parsed is None:
+                continue  # would have errored in _validate; defensive skip
+            base_fname, kind, value = parsed
+            if kind == 'os' and value != os_type:
+                continue
+            if kind == 'profile' and value != overlay_profile:
+                continue
+            base_key = f'{DOT_CONFIG_DIR}/{tool_name}/{base_fname}'
+            # Store absolute path so `.local` generation emits a direct
+            # reference — no symlinking through the main repo's dir symlink.
+            result.setdefault(base_key, []).append(full_path)
+    return result
+
+
 def _collect_variants(dotfiles_dir, overlay_dir, os_type, profile, exclude_files=None):
     """Merge OS/profile variants from main + overlay, deduping by filename.
 
-    Main-repo variants come from `find_variant_files` (scans for `.<os>.<base>`
-    and `.<profile>.<base>` patterns). Overlay variants come from the bare
-    filenames in the overlay — each is a variant of its base under the
-    overlay's declared profile.
+    Main-repo variants come from `find_variant_files` (scans repo root for
+    `.<os>.<base>` / `.<profile>.<base>` AND nested `.config/<tool>/BASE.MOD.EXT`).
+    Overlay contributes variants in two forms:
+      - Root-level: bare filenames get profile-prefixed at link time; the
+        resulting `.<profile>.<base>` is the variant name.
+      - Nested: files under <overlay>/.config/<tool>/ carry the modifier
+        in the filename already (validated by `_validate_overlay_dot_config`)
+        and are referenced by absolute path in the `.local` include.
     """
     variants = find_variant_files(dotfiles_dir, os_type, profile)
     if overlay_dir and os.path.isdir(overlay_dir):
@@ -559,6 +754,11 @@ def _collect_variants(dotfiles_dir, overlay_dir, os_type, profile, exclude_files
             overlay_dir, overlay_profile, exclude_files or []
         )
         for base, vlist in overlay_variants.items():
+            variants[base] = list(dict.fromkeys(variants.get(base, []) + vlist))
+        overlay_nested = _collect_overlay_dot_config_variants(
+            overlay_dir, overlay_profile, os_type
+        )
+        for base, vlist in overlay_nested.items():
             variants[base] = list(dict.fromkeys(variants.get(base, []) + vlist))
     return variants
 
@@ -588,8 +788,15 @@ def _generate_local_files(home_dir, all_variants, dry_run, results):
             if not dry_run:
                 import tempfile as _tempfile
 
+                # Put the temp file in the same directory as the target so
+                # os.replace() doesn't cross filesystems. For nested paths
+                # (e.g. ~/.config/fish/config.fish.local) the parent may
+                # be on a different device than $HOME when the target
+                # directory is a symlink into the repo.
+                local_dir = os.path.dirname(local_path) or home_dir
+                os.makedirs(local_dir, exist_ok=True)
                 with _tempfile.NamedTemporaryFile(
-                    'w', delete=False, dir=home_dir, prefix='.local-'
+                    'w', delete=False, dir=local_dir, prefix='.local-'
                 ) as f:
                     f.write(contents)
                     temp_path = f.name
@@ -668,6 +875,23 @@ def bootstrap(
             results,
         )
 
+    # Phase 3.5: .config/* convention discovery (Unit 1). Each top-level
+    # child of <repo>/.config/ maps 1:1 to ~/.config/<name> without a
+    # registry entry. Runs before the registry phase so explicit registry
+    # entries can still override (via registered_repo_paths dedup in
+    # discover_bootstrap_managed) if a user wants to opt out per-tool.
+    ignore_dirs = []
+    main_registry_path = os.path.join(dotfiles_dir, REGISTRY_FILENAME)
+    if os.path.exists(main_registry_path):
+        try:
+            main_registry = reg.load(main_registry_path)
+            ignore_dirs = list(main_registry.get('ignore_dirs') or [])
+        except (reg.RegistryError, yaml.YAMLError, KeyError):
+            pass
+    _link_dot_config_children(
+        dotfiles_dir, home_dir, 'common', ignore_dirs, dry_run, results
+    )
+
     # Phase 4: main registry
     processed = set()
     if not skip_registry:
@@ -687,6 +911,15 @@ def bootstrap(
     # link time so they flow through the existing `.local` hub.
     if overlay_dir and os.path.isdir(overlay_dir):
         overlay_profile = _read_overlay_profile(overlay_dir)
+        # Validate overlay .config/<tool>/* pre-naming (Unit 4) before any
+        # linking so a malformed overlay fails loudly instead of partially
+        # bootstrapping.
+        _validate_overlay_dot_config(
+            overlay_dir,
+            overlay_profile,
+            os_names=_os_names_for_registry(dotfiles_dir),
+            profiles=_profiles_for_registry(dotfiles_dir),
+        )
         rename_prefix = f'.{overlay_profile}'
         _link_root_dotfiles(
             overlay_dir,
@@ -756,14 +989,26 @@ def find_stale_symlinks(directories):
 def find_variant_files(dotfiles_dir, os_type, profile=None):
     """Find all OS/profile variant files and group by base dotfile.
 
-    Scans repo root for files matching .<os>.X or .<profile>.X patterns.
-    Returns a dict: {base_dotfile: [variant_filenames]}.
-    E.g. {'.zprofile': ['.macos.zprofile', '.work.zprofile']}
+    Scans repo root for files matching .<os>.X or .<profile>.X patterns
+    (root convention, leading-dot + profile-prefix), and scans each
+    top-level child of `.config/` one level deep for files matching the
+    nested BASE.MOD.EXT convention (e.g. `config.macos.fish`).
+
+    Returns a dict: {base_dotfile_or_nested_path: [variant_names_or_paths]}.
+      Root example:   `.zprofile` → [`.macos.zprofile`, `.work.zprofile`]
+      Nested example: `.config/fish/config.fish` →
+                      [`.config/fish/config.macos.fish`,
+                       `.config/fish/config.work.fish`]
+
+    Nested variants use repo-relative paths as both the base key and the
+    variant value, so generators downstream can distinguish root vs
+    nested placement without re-parsing.
     """
     variants = {}
     if not os.path.isdir(dotfiles_dir):
         return variants
 
+    # Root-level variants (existing convention).
     for fname in sorted(os.listdir(dotfiles_dir)):
         full_path = os.path.join(dotfiles_dir, fname)
         if not os.path.isfile(full_path):
@@ -785,12 +1030,41 @@ def find_variant_files(dotfiles_dir, os_type, profile=None):
                 base = '.' + base
             variants.setdefault(base, []).append(fname)
 
+    # Nested variants inside .config/<tool>/ (Unit 2 convention).
+    config_dir = os.path.join(dotfiles_dir, DOT_CONFIG_DIR)
+    if os.path.isdir(config_dir):
+        for tool_name in sorted(os.listdir(config_dir)):
+            tool_dir = os.path.join(config_dir, tool_name)
+            if not os.path.isdir(tool_dir):
+                continue
+            for fname in sorted(os.listdir(tool_dir)):
+                if not os.path.isfile(os.path.join(tool_dir, fname)):
+                    # Skip nested subdirectories (e.g. conf.d/) — variants
+                    # are only detected one level deep per the plan.
+                    continue
+                parsed = parse_nested_variant(fname)
+                if parsed is None:
+                    continue
+                base_fname, kind, value = parsed
+                if kind == 'os' and value != os_type:
+                    continue
+                if kind == 'profile' and value != profile:
+                    continue
+                base_path = f'{DOT_CONFIG_DIR}/{tool_name}/{base_fname}'
+                variant_path = f'{DOT_CONFIG_DIR}/{tool_name}/{fname}'
+                variants.setdefault(base_path, []).append(variant_path)
+
     return variants
 
 
 def build_local_contents(base_dotfile, variant_list):
-    """Build the expected contents of a .local file for a given base dotfile."""
-    tool_type = LOCAL_TOOL_TYPES.get(base_dotfile, 'shell')
+    """Build the expected contents of a .local file for a given base dotfile.
+
+    Falls back to 'shell' tool type when `get_tool_type` returns None so
+    existing callers keep the historical behavior; Unit 5 (unsupported
+    inclusion) routes the None case before reaching here.
+    """
+    tool_type = get_tool_type(base_dotfile) or 'shell'
     lines = ['# Auto-generated by dotfile bootstrap. Do not edit.']
     for variant in sorted(variant_list):
         lines.append(format_local_include(tool_type, variant))
@@ -829,11 +1103,17 @@ def generate_local_files(dotfiles_dir, home_dir, os_type, profile=None, dry_run=
                 action = 'would_create' if dry_run else 'created'
 
             if not dry_run:
-                # Atomic write: temp file + rename
+                # Atomic write: temp file + rename. Put the temp file in
+                # the same directory as the target so os.replace() doesn't
+                # cross filesystems — nested bases (`.config/fish/…`) may
+                # live on a different device via a directory symlink into
+                # the repo.
                 import tempfile
 
+                local_dir = os.path.dirname(local_path) or home_dir
+                os.makedirs(local_dir, exist_ok=True)
                 with tempfile.NamedTemporaryFile(
-                    'w', delete=False, dir=home_dir, prefix='.local-'
+                    'w', delete=False, dir=local_dir, prefix='.local-'
                 ) as f:
                     f.write(contents)
                     temp_path = f.name

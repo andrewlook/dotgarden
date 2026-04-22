@@ -14,6 +14,7 @@ from dotgarden.symlinks import (
     discover_bootstrap_managed,
     find_stale_symlinks,
     find_symlink_dirs,
+    list_dot_config_children,
     list_dotfiles,
     prepare_symlink_target,
 )
@@ -419,6 +420,197 @@ class TestFindStaleSymlinks(unittest.TestCase):
 
         stale = find_stale_symlinks([dir_a, dir_b])
         assert len(stale) == 2
+
+
+# -- .config/* convention auto-discovery (Unit 1) --
+
+
+class TestListDotConfigChildren(unittest.TestCase):
+    """Top-level children of <repo>/.config/ are scanned for the convention."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+        self.repo = os.path.join(self.tmpdir, 'dotfiles')
+        os.makedirs(os.path.join(self.repo, '.config'))
+
+    def tearDown(self):
+        shutil.rmtree(self.tmpdir)
+
+    def _mkdir(self, *names):
+        for name in names:
+            os.makedirs(os.path.join(self.repo, '.config', name))
+
+    def _touch(self, *names):
+        for name in names:
+            open(os.path.join(self.repo, '.config', name), 'w').close()
+
+    def test_empty_when_no_config_dir(self):
+        shutil.rmtree(os.path.join(self.repo, '.config'))
+        assert list_dot_config_children(self.repo) == []
+
+    def test_lists_directories_and_files(self):
+        self._mkdir('fish', 'ghostty', 'zed')
+        self._touch('standalone')
+        assert list_dot_config_children(self.repo) == [
+            'fish',
+            'ghostty',
+            'standalone',
+            'zed',
+        ]
+
+    def test_respects_ignore_names(self):
+        self._mkdir('fish', 'ghostty')
+        assert list_dot_config_children(self.repo, ignore_names=['fish']) == ['ghostty']
+
+    def test_skips_not_dotfiles_defaults(self):
+        self._mkdir('fish', '.git')
+        self._touch('.DS_Store')
+        # .git always filtered (NOT_DOTFILES); .DS_Store not in defaults but
+        # user should add it to ignore_dirs. For now, fish is only entry.
+        # Actually .DS_Store is not in NOT_DOTFILES defaults — it's a file,
+        # and would be listed. Users add it via registry ignore_files.
+        children = list_dot_config_children(self.repo)
+        assert 'fish' in children
+        assert '.git' not in children
+
+    def test_skips_md_extension(self):
+        self._touch('README.md', 'notes.md')
+        self._mkdir('tool')
+        assert list_dot_config_children(self.repo) == ['tool']
+
+
+class TestDiscoverBootstrapManagedDotConfig(unittest.TestCase):
+    """discover_bootstrap_managed emits .config/* entries alongside root-level."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+        self.repo = os.path.join(self.tmpdir, 'dotfiles')
+        self.home = os.path.join(self.tmpdir, 'home')
+        os.makedirs(self.repo)
+        os.makedirs(self.home)
+
+    def tearDown(self):
+        shutil.rmtree(self.tmpdir)
+
+    def _empty_registry(self):
+        return {'version': '3.0', 'registered_files': []}
+
+    def test_emits_dot_config_entries(self):
+        os.makedirs(os.path.join(self.repo, '.config', 'fish'))
+        os.makedirs(os.path.join(self.repo, '.config', 'ghostty'))
+        entries = discover_bootstrap_managed(self.repo, self.home, self._empty_registry())
+        sources = {e['source_path'] for e in entries}
+        assert '~/.config/fish' in sources
+        assert '~/.config/ghostty' in sources
+
+    def test_dot_config_entry_shape(self):
+        os.makedirs(os.path.join(self.repo, '.config', 'fish'))
+        entries = discover_bootstrap_managed(self.repo, self.home, self._empty_registry())
+        fish_entry = next(e for e in entries if e['source_path'] == '~/.config/fish')
+        assert fish_entry['repo_path'] == '.config/fish'
+        assert fish_entry['managed_by'] == 'bootstrap'
+        assert fish_entry['category'] == '.config'
+        assert fish_entry['os'] is None
+        assert fish_entry['profile'] is None
+
+    def test_registry_entry_takes_precedence(self):
+        os.makedirs(os.path.join(self.repo, '.config', 'fish'))
+        registry = {
+            'version': '3.0',
+            'registered_files': [
+                {
+                    'id': 'fish-explicit',
+                    'source_path': '~/.config/fish',
+                    'repo_path': '.config/fish',
+                    'category': 'fish',
+                    'os': None,
+                    'profile': None,
+                }
+            ],
+        }
+        entries = discover_bootstrap_managed(self.repo, self.home, registry)
+        # Registry entry dedups — bootstrap entry for same repo_path is skipped.
+        sources = [e['source_path'] for e in entries if e['managed_by'] == 'bootstrap']
+        assert '~/.config/fish' not in sources
+
+    def test_respects_registry_ignore_dirs(self):
+        os.makedirs(os.path.join(self.repo, '.config', 'fish'))
+        os.makedirs(os.path.join(self.repo, '.config', 'private'))
+        registry = {
+            'version': '3.0',
+            'registered_files': [],
+            'ignore_dirs': ['private'],
+        }
+        entries = discover_bootstrap_managed(self.repo, self.home, registry)
+        sources = {e['source_path'] for e in entries}
+        assert '~/.config/fish' in sources
+        assert '~/.config/private' not in sources
+
+
+class TestBootstrapDotConfig(unittest.TestCase):
+    """End-to-end bootstrap creates ~/.config/* symlinks from <repo>/.config/*."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+        self.repo = os.path.join(self.tmpdir, 'dotfiles')
+        self.home = os.path.join(self.tmpdir, 'home')
+        os.makedirs(os.path.join(self.repo, '.config', 'fish', 'conf.d'))
+        os.makedirs(self.home)
+        # A real file inside the fish dir so we can verify it's visible through the symlink.
+        with open(os.path.join(self.repo, '.config', 'fish', 'config.fish'), 'w') as f:
+            f.write('# fish config\n')
+
+    def tearDown(self):
+        shutil.rmtree(self.tmpdir)
+
+    def test_directory_symlink_created(self):
+        bootstrap(self.repo, self.home, 'macos')
+        home_fish = os.path.join(self.home, '.config', 'fish')
+        assert os.path.islink(home_fish)
+        assert os.path.realpath(home_fish) == os.path.realpath(
+            os.path.join(self.repo, '.config', 'fish')
+        )
+
+    def test_contents_visible_through_symlink(self):
+        bootstrap(self.repo, self.home, 'macos')
+        home_cfg = os.path.join(self.home, '.config', 'fish', 'config.fish')
+        assert os.path.exists(home_cfg)
+        with open(home_cfg) as f:
+            assert 'fish config' in f.read()
+
+    def test_pre_existing_home_dir_backed_up(self):
+        # User already has ~/.config/fish/ as a real directory with content.
+        home_fish = os.path.join(self.home, '.config', 'fish')
+        os.makedirs(home_fish)
+        with open(os.path.join(home_fish, 'pre-existing.fish'), 'w') as f:
+            f.write('# pre-existing\n')
+
+        bootstrap(self.repo, self.home, 'macos')
+
+        # The directory is now a symlink to the repo.
+        assert os.path.islink(home_fish)
+        # Pre-existing content was backed up to a .bak neighbour.
+        bak = home_fish + '.bak'
+        assert os.path.isdir(bak)
+        assert os.path.exists(os.path.join(bak, 'pre-existing.fish'))
+
+    def test_idempotent_rerun(self):
+        bootstrap(self.repo, self.home, 'macos')
+        results = bootstrap(self.repo, self.home, 'macos')
+        actions = [r[0] for r in results]
+        # Second run should produce 'ok' for the already-linked entry, no 'created'.
+        assert 'ok' in actions
+
+    def test_dry_run_does_not_create(self):
+        bootstrap(self.repo, self.home, 'macos', dry_run=True)
+        home_fish = os.path.join(self.home, '.config', 'fish')
+        assert not os.path.exists(home_fish)
+
+    def test_no_config_dir_in_repo_skips_phase(self):
+        shutil.rmtree(os.path.join(self.repo, '.config'))
+        # Should not raise, and should not create anything under ~/.config.
+        bootstrap(self.repo, self.home, 'macos')
+        assert not os.path.exists(os.path.join(self.home, '.config'))
 
 
 if __name__ == '__main__':

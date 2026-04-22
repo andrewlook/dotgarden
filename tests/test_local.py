@@ -10,8 +10,10 @@ import yaml
 
 from dotgarden.config import (
     format_local_include,
+    get_tool_type,
     is_os_specific,
     is_profile_specific,
+    parse_nested_variant,
 )
 from dotgarden.symlinks import (
     build_local_contents,
@@ -62,7 +64,32 @@ FORMAT_CASES = [
     ('shell', '.macos.zprofile', '[[ -f ~/.macos.zprofile ]] && . ~/.macos.zprofile'),
     ('git', '.work.gitconfig', '[include]\n    path = .work.gitconfig'),
     ('tmux', '.macos.tmux.conf', 'source-file -q ~/.macos.tmux.conf'),
+    (
+        'fish',
+        '.config/fish/config.macos.fish',
+        'test -e ~/.config/fish/config.macos.fish; and source ~/.config/fish/config.macos.fish',
+    ),
 ]
+
+
+# -- get_tool_type (Unit 3) --
+
+
+TOOL_TYPE_CASES = [
+    ('.zprofile', 'shell'),
+    ('.gitconfig', 'git'),
+    ('.tmux.conf', 'tmux'),
+    ('.config/fish/config.fish', 'fish'),
+    ('.config/fish/completions.fish', 'fish'),
+    ('.config/nvim/init.lua', None),  # unsupported → Unit 5 handles
+    ('.config/zed/settings.json', None),
+    ('unknownfile', None),
+]
+
+
+@pytest.mark.parametrize('base,expected', TOOL_TYPE_CASES, ids=[c[0] for c in TOOL_TYPE_CASES])
+def test_get_tool_type(base, expected):
+    assert get_tool_type(base) == expected
 
 
 @pytest.mark.parametrize(
@@ -390,6 +417,188 @@ class TestGetLocalStatusWithOverlay(unittest.TestCase):
 
         info = next(r for r in results if r['dotfile'] == '.zprofile')
         assert info['local_fresh']
+
+
+# -- Nested variant parser (Unit 2) --
+
+
+NESTED_CASES = [
+    ('config.fish', None),
+    ('config.macos.fish', ('config.fish', 'os', 'macos')),
+    ('config.linux.fish', ('config.fish', 'os', 'linux')),
+    ('config.work.fish', ('config.fish', 'profile', 'work')),
+    ('config.home.fish', ('config.fish', 'profile', 'home')),
+    ('config.macos', ('config', 'os', 'macos')),
+    ('config.work', ('config', 'profile', 'work')),
+    ('init.lua', None),
+    ('init.work.lua', ('init.lua', 'profile', 'work')),
+    ('config.fish.backup', None),
+    ('plain', None),
+]
+
+
+@pytest.mark.parametrize('filename,expected', NESTED_CASES, ids=[c[0] or 'empty' for c in NESTED_CASES])
+def test_parse_nested_variant(filename, expected):
+    assert parse_nested_variant(filename) == expected
+
+
+def test_parse_nested_variant_custom_os_names():
+    assert parse_nested_variant(
+        'config.freebsd.fish', os_names=['freebsd', 'openbsd']
+    ) == ('config.fish', 'os', 'freebsd')
+
+
+def test_parse_nested_variant_custom_profiles():
+    assert parse_nested_variant(
+        'config.server.fish', profiles=['server', 'desktop']
+    ) == ('config.fish', 'profile', 'server')
+
+
+# -- find_variant_files with nested variants (Unit 2) --
+
+
+class TestFindVariantFilesNested(unittest.TestCase):
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+        self.repo = os.path.join(self.tmpdir, 'dotfiles')
+        self.config = os.path.join(self.repo, '.config')
+        os.makedirs(self.config)
+
+    def tearDown(self):
+        shutil.rmtree(self.tmpdir)
+
+    def _touch_tool(self, tool, *names):
+        tool_dir = os.path.join(self.config, tool)
+        os.makedirs(tool_dir, exist_ok=True)
+        for name in names:
+            open(os.path.join(tool_dir, name), 'w').close()
+
+    def test_detects_nested_os_variant(self):
+        self._touch_tool('fish', 'config.fish', 'config.macos.fish')
+        result = find_variant_files(self.repo, 'macos')
+        assert '.config/fish/config.fish' in result
+        assert '.config/fish/config.macos.fish' in result['.config/fish/config.fish']
+
+    def test_detects_nested_profile_variant(self):
+        self._touch_tool('fish', 'config.fish', 'config.work.fish')
+        result = find_variant_files(self.repo, 'macos', profile='work')
+        assert '.config/fish/config.fish' in result
+        assert '.config/fish/config.work.fish' in result['.config/fish/config.fish']
+
+    def test_detects_both_os_and_profile(self):
+        self._touch_tool('fish', 'config.fish', 'config.macos.fish', 'config.work.fish')
+        result = find_variant_files(self.repo, 'macos', profile='work')
+        assert len(result['.config/fish/config.fish']) == 2
+
+    def test_filters_other_os(self):
+        self._touch_tool('fish', 'config.fish', 'config.linux.fish')
+        result = find_variant_files(self.repo, 'macos')
+        assert '.config/fish/config.fish' not in result
+
+    def test_extensionless_ghostty_variant(self):
+        self._touch_tool('ghostty', 'config', 'config.macos')
+        result = find_variant_files(self.repo, 'macos')
+        assert '.config/ghostty/config' in result
+        assert '.config/ghostty/config.macos' in result['.config/ghostty/config']
+
+    def test_does_not_recurse_into_subdirs(self):
+        os.makedirs(os.path.join(self.config, 'fish', 'conf.d'))
+        self._touch_tool('fish', 'config.fish')
+        with open(os.path.join(self.config, 'fish', 'conf.d', 'work.fish'), 'w') as f:
+            f.write('')
+        result = find_variant_files(self.repo, 'macos', profile='work')
+        assert all('conf.d' not in k for k in result.keys())
+
+    def test_ignores_unknown_modifier_segment(self):
+        self._touch_tool('fish', 'config.fish', 'config.foobar.fish')
+        result = find_variant_files(self.repo, 'macos')
+        assert '.config/fish/config.fish' not in result
+
+    def test_root_and_nested_coexist(self):
+        open(os.path.join(self.repo, '.zprofile'), 'w').close()
+        open(os.path.join(self.repo, '.macos.zprofile'), 'w').close()
+        self._touch_tool('fish', 'config.fish', 'config.macos.fish')
+
+        result = find_variant_files(self.repo, 'macos')
+        assert '.zprofile' in result
+        assert '.config/fish/config.fish' in result
+
+
+# -- Nested .local generation: fish + placement (Unit 3) --
+
+
+class TestFishLocalGeneration(unittest.TestCase):
+    """~/.config/fish/config.fish.local is written next to the base with fish syntax."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+        self.repo = os.path.join(self.tmpdir, 'dotfiles')
+        self.home = os.path.join(self.tmpdir, 'home')
+        os.makedirs(os.path.join(self.repo, '.config', 'fish'))
+        os.makedirs(self.home)
+
+    def tearDown(self):
+        shutil.rmtree(self.tmpdir)
+
+    def _touch_fish(self, *names):
+        for name in names:
+            with open(os.path.join(self.repo, '.config', 'fish', name), 'w') as f:
+                f.write(f'# {name}\n')
+
+    def test_generates_fish_local_next_to_base(self):
+        self._touch_fish('config.fish', 'config.macos.fish')
+        results = generate_local_files(self.repo, self.home, 'macos')
+        created = [r for r in results if r[0] == 'created']
+        assert len(created) == 1
+        _, path, _ = created[0]
+        # Placed next to the base, not in $HOME root.
+        assert path.endswith('.config/fish/config.fish.local')
+
+    def test_fish_local_contents_use_fish_include(self):
+        self._touch_fish('config.fish', 'config.macos.fish')
+        results = generate_local_files(self.repo, self.home, 'macos')
+        _, _, contents = results[0]
+        assert 'test -e ~/.config/fish/config.macos.fish' in contents
+        assert 'and source ~/.config/fish/config.macos.fish' in contents
+
+    def test_fish_local_includes_multiple_variants(self):
+        self._touch_fish('config.fish', 'config.macos.fish', 'config.work.fish')
+        results = generate_local_files(self.repo, self.home, 'macos', profile='work')
+        _, _, contents = results[0]
+        assert 'config.macos.fish' in contents
+        assert 'config.work.fish' in contents
+
+    def test_fish_local_written_to_disk_through_symlink(self):
+        # Simulate Phase 3.5 having already created the directory symlink.
+        os.makedirs(os.path.join(self.home, '.config'))
+        os.symlink(
+            os.path.join(self.repo, '.config', 'fish'),
+            os.path.join(self.home, '.config', 'fish'),
+        )
+        self._touch_fish('config.fish', 'config.macos.fish')
+        generate_local_files(self.repo, self.home, 'macos')
+        # The .local ends up in the repo (via the symlink), per D5.
+        repo_local = os.path.join(self.repo, '.config', 'fish', 'config.fish.local')
+        assert os.path.exists(repo_local)
+        home_local = os.path.join(self.home, '.config', 'fish', 'config.fish.local')
+        assert os.path.exists(home_local)  # reachable through the symlink too
+
+    def test_idempotent_fish_local(self):
+        self._touch_fish('config.fish', 'config.macos.fish')
+        generate_local_files(self.repo, self.home, 'macos')
+        results = generate_local_files(self.repo, self.home, 'macos')
+        statuses = [r[0] for r in results]
+        assert 'ok' in statuses
+
+    def test_dry_run_does_not_write(self):
+        self._touch_fish('config.fish', 'config.macos.fish')
+        results = generate_local_files(self.repo, self.home, 'macos', dry_run=True)
+        assert results[0][0] == 'would_create'
+        # Home side: no parent dir created, nothing to check
+        # Repo side: .local MUST NOT have been written
+        assert not os.path.exists(
+            os.path.join(self.repo, '.config', 'fish', 'config.fish.local')
+        )
 
 
 # -- discover_overlay_managed --

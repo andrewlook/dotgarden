@@ -295,5 +295,106 @@ class TestRegistryInteraction(OverlayTestBase):
         assert not os.path.exists(os.path.join(self.home, 'custom-script.py'))
 
 
+# -- Overlay .config/<tool>/ nested pre-naming (Unit 4) --
+
+
+class TestOverlayDotConfigPreNaming(OverlayTestBase):
+    """Overlay files under .config/<tool>/ must pre-name the modifier.
+
+    No auto-renaming happens for nested paths — users must commit files
+    like `config.work.fish` (not bare `config.fish`) in the overlay.
+    """
+
+    def _write_main_base(self, *paths):
+        """Place base files in the main repo's .config/<tool>/ structure."""
+        for p in paths:
+            full = os.path.join(self.repo, p)
+            os.makedirs(os.path.dirname(full), exist_ok=True)
+            with open(full, 'w') as f:
+                f.write(f'# {os.path.basename(p)}\n')
+
+    def _write_overlay_nested(self, *paths):
+        for p in paths:
+            full = os.path.join(self.overlay, p)
+            os.makedirs(os.path.dirname(full), exist_ok=True)
+            with open(full, 'w') as f:
+                f.write(f'# overlay {os.path.basename(p)}\n')
+
+    def test_properly_named_overlay_file_accepted(self):
+        self._overlay_registry(profile='work')
+        self._write_main_base('.config/fish/config.fish')
+        self._write_overlay_nested('.config/fish/config.work.fish')
+
+        results = bootstrap(self.repo, self.home, 'linux', profile='work', overlay_dir=self.overlay)
+
+        # .local was generated and references the overlay's absolute path.
+        local_path = os.path.join(self.home, '.config', 'fish', 'config.fish.local')
+        assert os.path.exists(local_path)
+        with open(local_path) as f:
+            content = f.read()
+        overlay_abs = os.path.join(self.overlay, '.config', 'fish', 'config.work.fish')
+        assert overlay_abs in content
+
+    def test_bare_overlay_file_rejected(self):
+        # Overlay has .config/fish/config.fish (no modifier) — must error.
+        self._overlay_registry(profile='work')
+        self._write_main_base('.config/fish/config.fish')
+        self._write_overlay_nested('.config/fish/config.fish')
+
+        with pytest.raises(Exception) as exc_info:
+            bootstrap(self.repo, self.home, 'linux', profile='work', overlay_dir=self.overlay)
+        assert 'no modifier' in str(exc_info.value)
+        assert 'config.fish' in str(exc_info.value)
+
+    def test_wrong_profile_overlay_file_rejected(self):
+        # Overlay is profile=work but file is config.home.fish.
+        self._overlay_registry(profile='work')
+        self._write_main_base('.config/fish/config.fish')
+        self._write_overlay_nested('.config/fish/config.home.fish')
+
+        with pytest.raises(Exception) as exc_info:
+            bootstrap(self.repo, self.home, 'linux', profile='work', overlay_dir=self.overlay)
+        assert "'home'" in str(exc_info.value) and "'work'" in str(exc_info.value)
+
+    def test_os_tagged_overlay_file_accepted(self):
+        # Overlay has .config/fish/config.linux.fish — OS-tagged, any profile.
+        self._overlay_registry(profile='work')
+        self._write_main_base('.config/fish/config.fish')
+        self._write_overlay_nested('.config/fish/config.linux.fish')
+
+        bootstrap(self.repo, self.home, 'linux', profile='work', overlay_dir=self.overlay)
+
+        local_path = os.path.join(self.home, '.config', 'fish', 'config.fish.local')
+        assert os.path.exists(local_path)
+        with open(local_path) as f:
+            content = f.read()
+        overlay_abs = os.path.join(self.overlay, '.config', 'fish', 'config.linux.fish')
+        assert overlay_abs in content
+
+    def test_os_tagged_overlay_file_filtered_by_current_os(self):
+        # Overlay's config.macos.fish should NOT be included on linux bootstrap.
+        self._overlay_registry(profile='work')
+        self._write_main_base('.config/fish/config.fish')
+        self._write_overlay_nested('.config/fish/config.macos.fish')
+
+        bootstrap(self.repo, self.home, 'linux', profile='work', overlay_dir=self.overlay)
+
+        local_path = os.path.join(self.home, '.config', 'fish', 'config.fish.local')
+        # .local might not even exist if no variants matched.
+        if os.path.exists(local_path):
+            with open(local_path) as f:
+                content = f.read()
+            assert 'config.macos.fish' not in content
+
+    def test_overlay_without_config_dir_does_not_crash(self):
+        # Overlay with just root-level bare files and no .config/ dir.
+        self._overlay_registry(profile='work')
+        self._touch(self.overlay, '.gitconfig')
+        self._write_main_base('.config/fish/config.fish')
+
+        # Should not crash in _validate_overlay_dot_config.
+        bootstrap(self.repo, self.home, 'linux', profile='work', overlay_dir=self.overlay)
+
+
 if __name__ == '__main__':
     unittest.main()
