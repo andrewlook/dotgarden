@@ -1,0 +1,42 @@
+[tasks.clean]
+description = "Remove __pycache__, .pytest_cache, and dist/ build artifacts"
+run = [
+  "find . -name __pycache__ -type d -exec rm -rf {} +",
+  "find . -name '*.pyc' -delete",
+  "rm -rf dist build *.egg-info .pytest_cache"
+]
+
+[tasks.fmt]
+description = "Format all code"
+run = [
+  "ruff format .",
+  "ruff check --fix ."
+]
+
+[tasks.lint]
+description = "Check formatting without changing files"
+run = [
+  "ruff format --check .",
+  "ruff check ."
+]
+
+[tasks.test]
+description = "Run all tests"
+run = "uv run --with pytest --with pyyaml python -m pytest tests/ -v"
+
+[tasks."test:file"]
+description = "Run a single test file"
+run = "uv run --with pytest --with pyyaml python -m pytest {{arg(name=\"file\")}} -v"
+usage = "test:file <file>"
+
+[tasks."test:q"]
+description = "Run tests (quiet)"
+run = "uv run --with pytest --with pyyaml python -m pytest tests/ -q"
+
+[tasks."test:docker"]
+description = "Build the integration image and run the bash harness"
+run = "./test-docker"
+
+[tools]
+python = "3.12"
+ruff = "latest"

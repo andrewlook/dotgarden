@@ -1,0 +1,35 @@
+FROM ubuntu:22.04
+
+# Base packages. The integration tests don't need fish/tmux/vim; we just need
+# a shell, git, python3 (for uv), and bash assertions.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        git \
+        python3 \
+        python3-venv \
+        ca-certificates \
+        curl \
+        bash \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN useradd -m -s /bin/bash testuser
+USER testuser
+WORKDIR /home/testuser
+
+# Install uv for the test user.
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh
+ENV PATH="/home/testuser/.local/bin:${PATH}"
+
+# Copy the dotgarden source into a separate /src location so tests that
+# manipulate repo fixtures never interact with the package source.
+COPY --chown=testuser:testuser . /home/testuser/src
+WORKDIR /home/testuser/src
+
+# Install the actual dotfile entry-point. This is what PyPI users will get.
+# `uv tool install` creates an isolated venv and exposes `dotfile` on PATH.
+RUN uv tool install .
+ENV PATH="/home/testuser/.local/share/uv/tools/dotgarden/bin:${PATH}"
+
+# Default: run the integration harness. Override with e.g.
+#   docker run --rm -it dotfiles-test bash
+# to poke around interactively.
+CMD ["bash", "tests/integration/run-all.sh"]

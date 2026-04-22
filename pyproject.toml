@@ -38,20 +38,15 @@ Homepage = "https://github.com/andrewlook/dotgarden"
 Repository = "https://github.com/andrewlook/dotgarden"
 
 [tool.hatch.build.targets.sdist]
-exclude = [
-  "/.gitignore"
-]
-# Strict allowlist. Hatchling's default sdist walks up the directory tree for
-# metadata files (notably .gitignore) and bundles them in — which in a
-# monorepo leaks the parent repo's ignore patterns into the published
-# tarball. Pinning the allowlist + an explicit .gitignore exclude keeps the
-# sdist contents predictable regardless of what directory uv build runs from.
+# Strict allowlist so sdists stay predictable — only package-relevant files
+# ship to PyPI, not dev tooling, CI config, or editor artifacts.
 include = [
   "/dotgarden",
   "/tests",
   "/pyproject.toml",
   "/README.md",
-  "/LICENSE"
+  "/LICENSE",
+  "/CHANGELOG.md"
 ]
 
 [tool.hatch.build.targets.wheel]

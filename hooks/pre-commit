@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+#
+# Custom pre-commit hook: auto-stages formatter changes, fails on lint errors.
+#
+# WHY THIS EXISTS
+# ---------------
+# The pre-commit framework treats formatter changes and lint errors identically:
+# both exit non-zero and abort the commit. That means if ruff-format or shfmt
+# reformats a file, you have to manually `git add` and re-commit — annoying.
+#
+# This wrapper separates the two:
+#   - Formatting changes (ruff-format, pretty-format-toml) are auto-staged
+#     and the commit proceeds.
+#   - Lint errors (ruff check) still block.
+#
+# HOW IT WORKS
+# ------------
+#   1. Run all pre-commit hooks (formatters + linters)
+#   2. If everything passed, done — commit proceeds
+#   3. If something failed, check if any staged files were modified on disk
+#      (this is the signal that a formatter ran and changed something)
+#   4. If yes: re-stage the modified files with `git add -u` and retry all hooks
+#   5. If the retry passes, the failure was formatting-only — commit proceeds
+#   6. If the retry still fails, there's a real lint error — abort
+#
+# SETUP
+# -----
+# This hook lives in the repo at hooks/pre-commit. Git uses it because the
+# repo's local config has: core.hooksPath = hooks
+#
+# After cloning, run:  git config core.hooksPath hooks
+
+set -euo pipefail
+
+run_hooks() {
+    pre-commit run --config "$(git rev-parse --show-toplevel)/.pre-commit-config.yaml" "$@"
+}
+
+# First attempt — run all hooks
+if run_hooks; then
+    exit 0
+fi
+
+# Something failed. Was it a formatter that modified files?
+# `git diff --quiet` exits non-zero if there are unstaged changes — i.e.
+# a formatter wrote to a file that was staged, creating a staged/unstaged diff.
+if ! git diff --quiet; then
+    # Formatter changes detected — stage them and retry
+    git add -u
+    if run_hooks; then
+        exit 0
+    fi
+fi
+
+# Still failing after restaging — this is a real lint error
+exit 1

@@ -7,6 +7,7 @@ import unittest
 
 import pytest
 import yaml
+
 from dotgarden.registry import (
     RegistryError,
     add,

@@ -6,6 +6,7 @@ import tempfile
 import unittest
 
 import pytest
+
 from dotgarden.paths import (
     auto_detect_category,
     escape_spaces,

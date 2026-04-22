@@ -6,6 +6,7 @@ import tempfile
 import unittest
 
 import pytest
+
 from dotgarden.symlinks import (
     bootstrap,
     check_status,

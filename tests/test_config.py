@@ -4,6 +4,7 @@ import os
 import unittest
 
 import pytest
+
 from dotgarden.config import (
     NOT_DOTFILES,
     NOT_DOTFILES_DIRS,

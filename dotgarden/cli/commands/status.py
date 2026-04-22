@@ -119,10 +119,7 @@ def _colorize_target(target_str, dotfiles_tilde, overlay_tilde, overlay_color):
         if target_str == overlay_tilde:
             return f'{overlay_color}{target_str}{_RESET}'
         if target_str.startswith(overlay_tilde + '/'):
-            return (
-                f'{overlay_color}{overlay_tilde}{_RESET}'
-                f'{target_str[len(overlay_tilde) :]}'
-            )
+            return f'{overlay_color}{overlay_tilde}{_RESET}{target_str[len(overlay_tilde) :]}'
     return target_str
 
 
@@ -330,9 +327,7 @@ def cmd_status(args):
         overlay_color = _tag_color(f'profile:{overlay_profile_name}', all_conditions)
 
     dotfiles_tilde = paths.format_for_display(dotfiles_dir, home_dir)
-    overlay_tilde = (
-        paths.format_for_display(overlay_abs, home_dir) if overlay_abs else None
-    )
+    overlay_tilde = paths.format_for_display(overlay_abs, home_dir) if overlay_abs else None
     _print_header_banner(
         dotfiles_tilde,
         overlay_tilde,

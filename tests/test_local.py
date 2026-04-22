@@ -7,6 +7,7 @@ import unittest
 
 import pytest
 import yaml
+
 from dotgarden.config import (
     format_local_include,
     is_os_specific,

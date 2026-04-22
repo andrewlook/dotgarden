@@ -8,6 +8,7 @@ from argparse import Namespace
 from unittest.mock import patch
 
 import pytest
+
 from dotgarden import registry as reg
 from dotgarden.cli import (
     _apply_dotfile_home_override,
@@ -903,9 +904,7 @@ class TestColorizeTarget(unittest.TestCase):
             '~/tools/dotfiles-work',
             self.overlay_color,
         )
-        assert result == (
-            f'{self.overlay_color}~/tools/dotfiles-work{self.reset}/.gitconfig'
-        )
+        assert result == (f'{self.overlay_color}~/tools/dotfiles-work{self.reset}/.gitconfig')
 
     def test_path_under_neither_stays_uncolored(self):
         result = self.colorize(

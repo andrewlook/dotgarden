@@ -1,0 +1,20 @@
+# Hooks are run by hooks/pre-commit (not the default pre-commit install).
+# That wrapper auto-stages changes from FORMATTERS and retries, so formatting
+# fixes get committed seamlessly. LINTERS still block the commit on failure.
+#
+# FORMATTERS (modify files):  ruff-format, pretty-format-toml
+# LINTERS (check only):       ruff
+
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.11.12
+    hooks:
+      - id: ruff-format          # FORMATTER
+      - id: ruff                  # LINTER (--fix auto-corrects, but still fails on unfixable errors)
+        args: [--fix]
+
+  - repo: https://github.com/macisamuele/language-formatters-pre-commit-hooks
+    rev: v2.14.0
+    hooks:
+      - id: pretty-format-toml   # FORMATTER
+        args: [--autofix]

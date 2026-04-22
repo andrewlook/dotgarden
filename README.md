@@ -48,10 +48,14 @@ registered configs, and the directory conventions.
 
 ## Development
 
-This package is published from
-[`andrewlook/dotgarden`](https://github.com/andrewlook/dotgarden). Direct
-commits are publish-only; upstream development happens elsewhere and reaches
-this repo via `git subtree push`.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, testing (`mise run test`,
+`./test-docker`), and the publish flow. The package layout, entry point
+(`dotgarden.cli:main`), and test harness all live in this repo — edits
+happen here directly.
+
+The `examples/starter/` directory is mirrored to
+[`andrewlook/dotgarden-template`](https://github.com/andrewlook/dotgarden-template)
+as the clone-ready starting point documented in Quick start above.
 
 ## License
 
