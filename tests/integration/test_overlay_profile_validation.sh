@@ -11,7 +11,7 @@ source "$(dirname "$0")/lib.sh"
 trap teardown_workspace EXIT
 setup_workspace
 
-copy_fixture_to_repo "$(dirname "$0")/../../examples/minimal"
+copy_fixture_to_repo "$(dirname "$0")/../../tests/fixtures/minimal"
 
 # ---- Case 1: overlay with no __registry__.yaml ----
 overlay_no_reg="$TEST_TMPDIR/overlay-no-reg"

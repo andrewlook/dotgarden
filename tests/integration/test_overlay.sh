@@ -11,8 +11,8 @@ source "$(dirname "$0")/lib.sh"
 trap teardown_workspace EXIT
 setup_workspace
 
-# Main repo = examples/minimal (has .gitconfig and .zprofile)
-copy_fixture_to_repo "$(dirname "$0")/../../examples/minimal"
+# Main repo = tests/fixtures/minimal (has .gitconfig and .zprofile)
+copy_fixture_to_repo "$(dirname "$0")/../../tests/fixtures/minimal"
 
 # Overlay dir with declared profile + bare-named files
 overlay_dir="$TEST_TMPDIR/overlay"

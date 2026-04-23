@@ -37,7 +37,7 @@ teardown_workspace() {
     [ -n "${ORIG_HOME:-}" ] && export HOME="$ORIG_HOME"
 }
 
-# Copy a fixture directory (e.g. examples/full/) into $TEST_REPO, flat.
+# Copy a fixture directory (e.g. tests/fixtures/full/) into $TEST_REPO, flat.
 copy_fixture_to_repo() {
     local src="$1"
     [ -d "$src" ] || _fail "fixture not found: $src"

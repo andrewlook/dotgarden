@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Bootstraps examples/full/ as --os linux --profile work and verifies
+# Bootstraps tests/fixtures/full/ as --os linux --profile work and verifies
 # variant filtering and .local generation.
 
 set -euo pipefail
@@ -8,7 +8,7 @@ source "$(dirname "$0")/lib.sh"
 trap teardown_workspace EXIT
 setup_workspace
 
-copy_fixture_to_repo "$(dirname "$0")/../../examples/full"
+copy_fixture_to_repo "$(dirname "$0")/../../tests/fixtures/full"
 
 assert_exit_zero "bootstrap linux/work" \
     dotfile bootstrap --os linux --profile work

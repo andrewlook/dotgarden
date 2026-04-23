@@ -1,153 +1,218 @@
 # Dotfiles
 
-Personal configuration files, managed by [dotgarden](https://github.com/andrewlook/dotgarden).
+Personal configuration files, managed by
+[dotgarden](https://github.com/andrewlook/dotgarden) (the `dotfile` CLI).
 
-## Quick Start
+This is a reference layout showing all three of dotgarden's file-placement
+mechanisms together — root dotfiles, the `.config/*` convention, and the
+registry — so you can copy what fits and delete what doesn't.
+
+## Install & bootstrap on a new machine
 
 ```bash
-# Clone this repo
+# 1. Install the CLI (via pipx, uv tool, or pip)
+uv tool install dotgarden      # or: pipx install dotgarden
+
+# 2. Clone this repo
 git clone https://github.com/YOUR_USERNAME/dotfiles.git ~/dotfiles
 cd ~/dotfiles
 
-# Install the dotfile CLI
-pipx install dotgarden  # or: pip install dotgarden
-
-# Preview what bootstrap will do
+# 3. Preview, then bootstrap
 dotfile bootstrap --os macos --dry-run
-
-# Run bootstrap
 dotfile bootstrap --os macos
 
 # Optional: activate a profile
 dotfile bootstrap --os macos --profile work
 ```
 
-## How It Works
+## The three placement mechanisms
 
-### Common dotfiles
+Dotgarden supports three ways to get a file from repo to `$HOME`. Each solves
+a different problem. This example uses all three so you can compare.
 
-Files in the repo root (`.gitconfig`, `.zprofile`, `.tmux.conf`, etc.) are symlinked to `~/` on all systems.
+### 1. Root dotfiles — convention, no registry
 
-### OS-specific overrides
-
-Files named `.<os>.<tool>` are only symlinked on matching systems:
-
-- `.macos.zprofile` — sourced on macOS only
-- `.linux.gitconfig` — included on Linux only
-
-### The `.local` pattern
-
-Each base dotfile includes a `.local` counterpart. Bootstrap generates `.local` files with the correct includes for your OS and profile:
+Files at the repo root symlink 1:1 to `$HOME`. No configuration needed.
 
 ```
-.gitconfig  →  includes .gitconfig.local  →  includes .macos.gitconfig
+<repo>/.gitconfig         → ~/.gitconfig
+<repo>/.zprofile          → ~/.zprofile
+<repo>/.tmux.conf         → ~/.tmux.conf
+<repo>/.vimrc             → ~/.vimrc
+<repo>/.aliases           → ~/.aliases
 ```
 
-You never edit `.local` files — they're auto-generated and `.gitignore`'d.
+OS and profile variants live at the same level with a `.MOD.BASE` prefix:
 
-### Registered configs
+```
+<repo>/.macos.gitconfig   → ~/.macos.gitconfig    (when --os macos)
+<repo>/.linux.gitconfig   → ~/.linux.gitconfig    (when --os linux)
+<repo>/.work.zprofile     → ~/.work.zprofile      (when --profile work)
+```
 
-Configs outside `~/` (like `~/.config/ghostty/`) are tracked in `__registry__.yaml`:
+### 2. `.config/*` convention — also no registry
+
+Top-level children of `<repo>/.config/` auto-symlink to `~/.config/<name>`.
+The whole directory is a single symlink; everything inside rides along.
+
+```
+<repo>/.config/fish/      → ~/.config/fish        (directory symlink)
+<repo>/.config/ghostty/   → ~/.config/ghostty     (directory symlink)
+```
+
+Inside a tool directory, nested variants use the `BASE.MOD.EXT` pattern
+(different from root — here the leading dot belongs to `.config/`, not
+to each file):
+
+```
+.config/fish/config.fish           # base
+.config/fish/config.macos.fish     # sourced when --os macos
+.config/fish/config.work.fish      # sourced when --profile work
+```
+
+### 3. Registry — for paths that are neither of the above
+
+Some apps store config in inconvenient places:
+`~/Library/Application Support/Cursor/User/settings.json`,
+`~/.claude/skills/`, etc. The registry maps a clean repo path to the
+actual target. This example registers Cursor:
 
 ```yaml
-ghostty:
+# __registry__.yaml
+cursor:
   macos:
-    - .config/ghostty/config: ~/.config/ghostty/config
+  - _cursor/settings.json: ~/Library/Application Support/Cursor/User/settings.json
+  - _cursor/keybindings.json: ~/Library/Application Support/Cursor/User/keybindings.json
 ```
 
-Register new configs with:
+Use the registry when:
+
+- The target path is outside `~/` and `~/.config/`
+- The target is OS-conditional and the path differs per OS
+- You want `dotfile unregister` to restore the original file cleanly
+
+Don't use the registry for things the conventions already handle —
+registering `~/.config/fish/` by hand is noise.
+
+## The command sequence that produced this layout
+
+If you started from an empty repo, here's (roughly) the sequence of
+`dotfile` commands that would produce what you see:
 
 ```bash
-dotfile register ~/.config/some-tool/config
-```
+# Start with an empty repo
+git init ~/dotfiles && cd ~/dotfiles
 
-## Adding New Config
+# --- Create the registry metadata file ---
+# Declare supported OS and profile names. Convention-discovered files and
+# bootstrap both use these.
+cat > __registry__.yaml <<EOF
+version: '3.0'
+os: [macos, linux]
+profiles: [work, home]
+EOF
 
-### Add a common dotfile
+# --- Add base root dotfiles ---
+# Hand-place .gitconfig, .zprofile, .tmux.conf, .vimrc, .aliases. These are
+# the "common" dotfiles — any file at the repo root that looks like a
+# dotfile is auto-symlinked.
 
-Just put it in the repo root. Bootstrap will symlink it to `~/`.
+# --- Specialize for OS/profile ---
+# Creates .macos.gitconfig / .linux.gitconfig and appends the [include]
+# line at the bottom of .gitconfig pointing at .gitconfig.local.
+dotfile specialize os .gitconfig
+dotfile specialize os .zprofile
+dotfile specialize os .tmux.conf
 
-### Add OS-specific overrides
+# .zprofile gets work/home profile variants too:
+dotfile specialize profile .zprofile
 
-Drop an OS-prefixed file next to the base file and bootstrap will wire up the
-`.local` include on the next run:
+# --- Add .config/<tool>/ content ---
+# Just place files; no registration needed. Variants use BASE.MOD.EXT.
+mkdir -p .config/fish .config/ghostty
+# (write config.fish, config.macos.fish, .config/ghostty/config by hand)
 
-```bash
-# Create macOS + Linux variants for .gitconfig
-touch .macos.gitconfig .linux.gitconfig
+# Wire fish's OS/profile .local hub in the same way:
+dotfile specialize os .config/fish/config.fish
 
-# Add the include line at the bottom of .gitconfig (dotfile bootstrap
-# also auto-generates ~/.gitconfig.local with the same effect):
-printf '\n[include]\n    path = .gitconfig.local\n' >> .gitconfig
+# --- Register Cursor's settings (non-XDG path) ---
+# `register` moves the file from ~/Library/Application Support/... into
+# _cursor/ and creates the symlink back. After this, edits to either
+# location track together.
+dotfile register ~/Library/Application\ Support/Cursor/User/settings.json \
+    --category cursor --os macos
+dotfile register ~/Library/Application\ Support/Cursor/User/keybindings.json \
+    --category cursor --os macos
 
+# --- Bootstrap everything ---
 dotfile bootstrap --os macos
 ```
 
-### Register an app config
+After bootstrap, your `$HOME` has:
 
-```bash
-dotfile register ~/.config/nvim
-```
+- `~/.gitconfig` → repo's `.gitconfig`
+- `~/.gitconfig.local` (auto-generated) → sources `.macos.gitconfig` when on macOS
+- `~/.config/fish` → repo's `.config/fish/` (whole-dir symlink)
+- `~/.config/fish/config.fish.local` (auto-generated) → sources the right variant
+- `~/Library/Application Support/Cursor/User/settings.json` → repo's `_cursor/settings.json`
 
-This moves the config into the repo and creates a symlink at the original location.
-
-## Commands
+## Daily operations
 
 | Command | Description |
 |---------|-------------|
-| `dotfile bootstrap --os <os> [--profile <p>] [--overlay <dir>]` | Create symlinks and generate `.local` files |
+| `dotfile bootstrap --os <os> [--profile <p>] [--overlay <dir>]` | Create symlinks and regenerate `.local` files |
 | `dotfile status` | Check health of all managed symlinks |
-| `dotfile register <path>` | Register a new config file or directory |
-| `dotfile unregister <id>` | Remove a config from management |
+| `dotfile register <path>` | Register a new config file or directory (moves + symlinks) |
+| `dotfile specialize os <path>` | Scaffold OS variants + wire `.local` include |
+| `dotfile specialize profile <path>` | Same, for profiles |
+| `dotfile unregister <id>` | Undo a `register` — restore the original file |
 | `dotfile list` | List all managed files |
 | `dotfile doctor` | Find and remove stale symlinks |
 | `dotfile env` | Show current OS, profile, and overlay |
-| `dotfile ids` | Print entry IDs (for scripting) |
 
-### Overlay directory
+## Overlay directory (layered configs)
 
-Layer a second dotfiles repo on top of this one — useful for keeping
-work-specific configs in a private repo while this one stays public:
+Keep work-specific configs in a private overlay repo while this one stays
+public. The overlay declares its profile and contributes files that layer
+on top of the main repo:
 
 ```bash
-git clone git@github.com:YOU/dotfiles-private.git ~/dotfiles-work
+git clone git@github.com:YOU/dotfiles-work.git ~/dotfiles-work
 dotfile bootstrap --os macos --profile work --overlay ~/dotfiles-work
 ```
 
-Overlay files win on collision. The overlay path is saved to
-`~/.dotfiles_env` and reused on subsequent bootstrap runs.
+Overlay root files are renamed with the overlay's profile prefix
+(`.gitconfig` → `~/.work.gitconfig`). Overlay files under `.config/<tool>/`
+must already carry the profile in the filename (e.g. `config.work.fish`).
+See the dotgarden docs for the full rules.
 
 ## Structure
 
 ```
 dotfiles/
 ├── .gitconfig                    # Common git config
-├── .macos.gitconfig              # macOS overrides
+├── .macos.gitconfig              # macOS overrides   (created by `specialize os`)
 ├── .linux.gitconfig              # Linux overrides
 ├── .zprofile                     # Common shell profile
-├── .macos.zprofile               # macOS shell setup
-├── .linux.zprofile               # Linux shell setup
-├── .tmux.conf                    # Common tmux config
-├── .macos.tmux.conf              # macOS tmux overrides
-├── .linux.tmux.conf              # Linux tmux overrides
-├── .aliases                      # Shared shell aliases
-├── .vimrc                        # Vim config
-├── .config/ghostty/config        # Ghostty terminal config
-├── _fish/                        # Fish shell configs
-│   ├── config.fish
-│   └── config.macos.fish
-├── __registry__.yaml             # Registered file mappings
+├── .macos.zprofile
+├── .linux.zprofile
+├── .tmux.conf
+├── .macos.tmux.conf
+├── .linux.tmux.conf
+├── .aliases
+├── .vimrc
+│
+├── .config/
+│   ├── fish/                     # CONVENTION: auto-discovered, no registry needed
+│   │   ├── config.fish
+│   │   └── config.macos.fish     # Nested variant (BASE.MOD.EXT)
+│   └── ghostty/
+│       └── config
+│
+├── _cursor/                      # REGISTRY: non-XDG target
+│   ├── settings.json
+│   └── keybindings.json
+│
+├── __registry__.yaml             # Declares os/profiles + registered categories
 └── .gitignore                    # Ignores .local files
 ```
-
-## Fish Shell
-
-Fish configs live under `_fish/` and are registered in `__registry__.yaml`. The main `config.fish` sources OS/profile variants directly from the repo using `$DOTFILES` paths (no `.local` pattern needed for fish).
-
-## Customization
-
-1. **Fork this template** and clone to `~/dotfiles`
-2. **Edit configs** — add your settings to the common files
-3. **Add OS overrides** — `dotfile specialize os .gitconfig`
-4. **Register app configs** — `dotfile register ~/.config/your-app`
-5. **Bootstrap on new machines** — `dotfile bootstrap --os <os>`

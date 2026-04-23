@@ -8,7 +8,7 @@ source "$(dirname "$0")/lib.sh"
 trap teardown_workspace EXIT
 setup_workspace
 
-copy_fixture_to_repo "$(dirname "$0")/../../examples/minimal"
+copy_fixture_to_repo "$(dirname "$0")/../../tests/fixtures/minimal"
 
 # Add a file that looks like a dotfile but should be excluded via registry.
 echo 'print("hello")' > "$TEST_REPO/build.py"

@@ -8,7 +8,7 @@ source "$(dirname "$0")/lib.sh"
 trap teardown_workspace EXIT
 setup_workspace
 
-copy_fixture_to_repo "$(dirname "$0")/../../examples/full"
+copy_fixture_to_repo "$(dirname "$0")/../../tests/fixtures/full"
 
 assert_exit_zero "first bootstrap"  dotfile bootstrap --os linux --profile work
 first_snapshot=$(ls -la "$TEST_HOME" | sort)

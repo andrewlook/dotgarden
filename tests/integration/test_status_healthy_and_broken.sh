@@ -9,7 +9,7 @@ source "$(dirname "$0")/lib.sh"
 trap teardown_workspace EXIT
 setup_workspace
 
-copy_fixture_to_repo "$(dirname "$0")/../../examples/minimal"
+copy_fixture_to_repo "$(dirname "$0")/../../tests/fixtures/minimal"
 
 assert_exit_zero "bootstrap"  dotfile bootstrap --os linux
 

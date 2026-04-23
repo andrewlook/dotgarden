@@ -8,7 +8,7 @@ source "$(dirname "$0")/lib.sh"
 trap teardown_workspace EXIT
 setup_workspace
 
-copy_fixture_to_repo "$(dirname "$0")/../../examples/minimal"
+copy_fixture_to_repo "$(dirname "$0")/../../tests/fixtures/minimal"
 
 overlay_dir="$TEST_TMPDIR/overlay"
 mkdir -p "$overlay_dir"
