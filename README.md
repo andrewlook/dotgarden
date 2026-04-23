@@ -32,14 +32,63 @@ registered configs, and the directory conventions.
 
 | Command | Description |
 |---------|-------------|
-| `dotfile bootstrap --os <os> [--profile <p>] [--overlay <dir>]` | Link files in `$HOME` to the repo-managed versions and generate `.local` include files |
+| `dotfile bootstrap` | Link files in `$HOME` to the repo-managed versions and generate `.local` include files |
 | `dotfile status` | Check health of all managed symlinks |
-| `dotfile register <path>` | Move a config into the repo and symlink it back |
-| `dotfile unregister <id>` | Remove a config from management |
+| `dotfile register` | Move a config into the repo and symlink it back |
+| `dotfile unregister` | Remove a config from management |
+| `dotfile specialize` | Scaffold OS/profile variant files and wire their `.local` include |
 | `dotfile list` | List all managed files |
 | `dotfile doctor` | Find and remove stale symlinks |
 | `dotfile env` | Show current OS, profile, and overlay |
 | `dotfile ids` | Print entry IDs (for scripting) |
+
+### `dotfile bootstrap`
+
+```
+dotfile bootstrap --os <macos|linux> [--profile <name>] [--overlay <dir>] [--dry-run]
+```
+
+Runs every symlink and `.local` generator from a clean slate. Safe to re-run.
+
+- `--os` — required on first run; remembered in `~/.dotfiles_env` after.
+- `--profile` — activates a profile's variant files and registry entries.
+- `--overlay` — layers a second repo on top (see GUIDE.md § Overlay).
+- `--dry-run` — print the plan without touching the filesystem.
+- `--skip-registry` — only handle root + `.config/*` conventions, skip registered entries.
+- `--skip-unsupported` — silently skip `.local` generation for tool types with no known include syntax.
+
+Existing non-symlink files at a link location are preserved as `<path>.bak`
+before being replaced.
+
+### `dotfile register`
+
+```
+dotfile register <path> [--category <name>] [--os <os>] [--profile <name>] [--name <file>] [--overlay <dir>] [--force] [--dry-run] [-y]
+```
+
+Moves `<path>` into the repo (under `_<category>/` or the repo root) and
+creates a symlink back. Errors if the destination already exists unless you
+pass `--force`.
+
+- `--category` — target subdirectory in the repo (auto-detected from the source path if omitted).
+- `--os` / `--profile` — scope the entry so bootstrap only links it on matching machines.
+- `--name` — rename the file inside the repo.
+- `--overlay` — write into an overlay repo instead of the main one.
+- `--force` — overwrite an existing registration or repo file.
+- `-y` — skip the confirmation prompt.
+
+### `dotfile specialize`
+
+```
+dotfile specialize <os|profile> <dotfile> [--dry-run]
+```
+
+Scaffolds variant files for an existing base dotfile and appends the `.local`
+include line so bootstrap can generate the override file.
+
+Works on root paths (`.gitconfig`) and nested paths under `.config/<tool>/`
+(e.g. `.config/fish/config.fish`). Variant names come from the `os:` and
+`profiles:` lists in `__registry__.yaml`. Idempotent — safe to re-run.
 
 ## Documentation
 

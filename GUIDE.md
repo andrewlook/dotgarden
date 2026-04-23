@@ -229,13 +229,13 @@ the environment to override at runtime).
 
 | Command | What it does |
 |---------|--------------|
-| `dotfile bootstrap --os <os> [--profile <p>] [--overlay <dir>]` | Symlink everything; back up collisions as `.bak` |
-| `dotfile bootstrap --dry-run` | Preview the plan without touching the filesystem |
+| `dotfile bootstrap` | Symlink everything; back up collisions as `.bak` |
 | `dotfile status` | Health-check every managed symlink |
-| `dotfile register <path>` | Move a file into the repo, leave a symlink |
-| `dotfile unregister <id>` | Reverse a register |
-| `dotfile specialize os <path>` | Scaffold `.macos.*` / `.linux.*` variants + wire `.local` |
-| `dotfile specialize profile <path>` | Same, for profile variants |
+| `dotfile register` | Move a file into the repo, leave a symlink |
+| `dotfile unregister` | Reverse a register |
+| `dotfile specialize` | Scaffold OS/profile variants + wire `.local` include |
 | `dotfile list` | Print all managed entries (convention + registry) |
 | `dotfile doctor` | Find and remove stale symlinks |
 | `dotfile env` | Print saved OS / profile / overlay |
+
+For the flags each command takes, see [README.md](README.md#commands).
