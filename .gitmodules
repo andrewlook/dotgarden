@@ -1,0 +1,3 @@
+[submodule "examples/starter"]
+	path = examples/starter
+	url = https://github.com/andrewlook/dotgarden-template.git

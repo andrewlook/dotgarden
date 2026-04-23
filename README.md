@@ -1,7 +1,9 @@
 # dotgarden
 
-Manage dotfiles: register configs, bootstrap symlinks, and keep everything in
-sync. Ships the `dotfile` CLI.
+Manage dotfiles by moving them into a git-tracked repo and pointing `$HOME` at
+the repo-managed copies. `dotfile register` relocates a live config into the
+repo and leaves a symlink behind; `dotfile bootstrap` replays those symlinks
+(plus OS/profile variants) on any machine. Ships the `dotfile` CLI.
 
 ## Install
 
@@ -30,7 +32,7 @@ registered configs, and the directory conventions.
 
 | Command | Description |
 |---------|-------------|
-| `dotfile bootstrap --os <os> [--profile <p>] [--overlay <dir>]` | Create symlinks and generate `.local` files |
+| `dotfile bootstrap --os <os> [--profile <p>] [--overlay <dir>]` | Link files in `$HOME` to the repo-managed versions and generate `.local` include files |
 | `dotfile status` | Check health of all managed symlinks |
 | `dotfile register <path>` | Move a config into the repo and symlink it back |
 | `dotfile unregister <id>` | Remove a config from management |
@@ -41,6 +43,8 @@ registered configs, and the directory conventions.
 
 ## Documentation
 
+- [GUIDE.md](GUIDE.md) — hands-on walkthrough: starting a repo, registering
+  your first files, specializing for OS/profile, setting up an overlay
 - [Starter template](https://github.com/andrewlook/dotgarden-template) — clone
   this to begin a new dotfiles repo
 - Source and issue tracker:
