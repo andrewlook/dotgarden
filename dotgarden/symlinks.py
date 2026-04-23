@@ -763,9 +763,83 @@ def _collect_variants(dotfiles_dir, overlay_dir, os_type, profile, exclude_files
     return variants
 
 
-def _generate_local_files(home_dir, all_variants, dry_run, results):
+def _partition_by_tool_type(all_variants):
+    """Split the variant map into (supported, unsupported) by known tool type.
+
+    Unsupported bases lack a known include syntax — callers decide whether
+    to skip, prompt, or error out (Unit 5).
+    """
+    supported = {}
+    unsupported = {}
+    for base, vlist in all_variants.items():
+        if get_tool_type(base) is None:
+            unsupported[base] = vlist
+        else:
+            supported[base] = vlist
+    return supported, unsupported
+
+
+def _resolve_unsupported_variants(unsupported, skip_unsupported):
+    """Decide what to do with bases that have no known include syntax.
+
+    Returns the set of base paths to skip. Prompts interactively when stdin
+    is a tty and `skip_unsupported` is False; errors out non-interactively.
+    """
+    if not unsupported:
+        return set()
+    if skip_unsupported:
+        for base, variants in unsupported.items():
+            LOG.warning(
+                f'Skipping .local for {base!r} (no known include syntax). '
+                f'Variants: {list(variants)}'
+            )
+        return set(unsupported.keys())
+
+    import sys as _sys
+
+    if _sys.stdin.isatty():
+        skipped = set()
+        for base, variants in unsupported.items():
+            prompt = (
+                f"No known include syntax for {base!r} "
+                f'(variants: {list(variants)}). Skip .local generation? [y/N] '
+            )
+            try:
+                answer = input(prompt).strip().lower()
+            except EOFError:
+                answer = ''
+            if answer in ('y', 'yes'):
+                skipped.add(base)
+            else:
+                raise RuntimeError(
+                    f'Aborted: no include syntax for {base!r}. Add to '
+                    f'LOCAL_TOOL_TYPES or pass --skip-unsupported.'
+                )
+        return skipped
+
+    # Non-interactive, no skip flag → fail hard.
+    lines = ['No include syntax known for base(s):']
+    for base, variants in sorted(unsupported.items()):
+        lines.append(f'  {base}: {len(variants)} variant(s) → {list(variants)}')
+    lines.append(
+        'Add the base to LOCAL_TOOL_TYPES, remove the variant files, or '
+        'pass --skip-unsupported.'
+    )
+    raise RuntimeError('\n'.join(lines))
+
+
+def _generate_local_files(home_dir, all_variants, dry_run, results, skip_unsupported=False):
     """Write ~/<base>.local for each base dotfile that has OS/profile variants."""
-    for base_dotfile, variant_list in sorted(all_variants.items()):
+    supported, unsupported = _partition_by_tool_type(all_variants)
+    if unsupported:
+        skipped = _resolve_unsupported_variants(unsupported, skip_unsupported)
+        # Any unsupported base that the user opted to skip contributes an
+        # informational entry; others have already raised.
+        for base in sorted(skipped):
+            local_name = f'{base}.local'
+            local_path = os.path.join(home_dir, local_name)
+            results.append(('skipped_unsupported', local_path, None, 'local'))
+    for base_dotfile, variant_list in sorted(supported.items()):
         local_name = f'{base_dotfile}.local'
         local_path = os.path.join(home_dir, local_name)
         contents = build_local_contents(base_dotfile, variant_list)
@@ -816,6 +890,7 @@ def bootstrap(
     skip_registry=False,
     dry_run=False,
     overlay_dir=None,
+    skip_unsupported=False,
 ):
     """Bootstrap dotfiles by creating symlinks and generating .local files.
 
@@ -948,7 +1023,9 @@ def bootstrap(
     all_variants = _collect_variants(
         dotfiles_dir, overlay_dir, os_type, profile, exclude_files=exclude_files
     )
-    _generate_local_files(home_dir, all_variants, dry_run, results)
+    _generate_local_files(
+        home_dir, all_variants, dry_run, results, skip_unsupported=skip_unsupported
+    )
 
     return results
 

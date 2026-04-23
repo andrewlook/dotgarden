@@ -34,15 +34,20 @@ def cmd_bootstrap(args):
         profile_display = profile if profile else '(none)'
         sys.stderr.write(f'\033[2mBootstrap (os={args.os}, profile={profile_display})\033[0m\n')
 
-    results = symlinks.bootstrap(
-        dotfiles_dir=dotfiles_dir,
-        home_dir=home_dir,
-        os_type=args.os,
-        profile=profile,
-        skip_registry=args.skip_registry,
-        dry_run=args.dry_run,
-        overlay_dir=overlay_dir,
-    )
+    try:
+        results = symlinks.bootstrap(
+            dotfiles_dir=dotfiles_dir,
+            home_dir=home_dir,
+            os_type=args.os,
+            profile=profile,
+            skip_registry=args.skip_registry,
+            dry_run=args.dry_run,
+            overlay_dir=overlay_dir,
+            skip_unsupported=getattr(args, 'skip_unsupported', False),
+        )
+    except RuntimeError as e:
+        LOG.error(str(e))
+        sys.exit(1)
 
     # Group by phase
     phases = OrderedDict()

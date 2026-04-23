@@ -22,6 +22,7 @@ from dotgarden.cli.commands import (
     cmd_ids,
     cmd_list,
     cmd_register,
+    cmd_specialize,
     cmd_status,
     cmd_unregister,
 )
@@ -191,6 +192,30 @@ def _build_parser():
     bootstrap_parser.add_argument(
         '--dry-run', action='store_true', help='Show what would be done without making changes'
     )
+    bootstrap_parser.add_argument(
+        '--skip-unsupported',
+        action='store_true',
+        help='Skip .local generation for base files whose tool type has no known '
+        'include syntax (default: fail non-interactively, prompt interactively).',
+    )
+
+    specialize_parser = subparsers.add_parser(
+        'specialize',
+        help='Scaffold OS/profile variant files for a dotfile',
+        description='Create OS or profile variant files (and add the .local include line '
+        'to the base) for a given dotfile. Works for root dotfiles (e.g. .gitconfig) and '
+        'nested config files (e.g. .config/fish/config.fish). Idempotent — safe to rerun.',
+    )
+    specialize_parser.add_argument(
+        'kind', choices=['os', 'profile'], help='Type of specialization'
+    )
+    specialize_parser.add_argument(
+        'dotfile',
+        help='Base dotfile to specialize (e.g. .gitconfig or .config/fish/config.fish)',
+    )
+    specialize_parser.add_argument(
+        '--dry-run', action='store_true', help='Show what would change without making changes'
+    )
 
     return parser
 
@@ -204,6 +229,7 @@ _COMMANDS = {
     'env': cmd_env,
     'doctor': cmd_doctor,
     'bootstrap': cmd_bootstrap,
+    'specialize': cmd_specialize,
 }
 
 

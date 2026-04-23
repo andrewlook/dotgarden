@@ -601,6 +601,100 @@ class TestFishLocalGeneration(unittest.TestCase):
         )
 
 
+# -- Unsupported inclusion (Unit 5) --
+
+
+class TestUnsupportedInclusion(unittest.TestCase):
+    """Variants for a base with no known include syntax are handled explicitly.
+
+    Non-interactive: raise RuntimeError naming the unsupported bases.
+    Interactive: prompt for skip; default is abort.
+    --skip-unsupported: skip silently with a warning, no error.
+    """
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+        self.repo = os.path.join(self.tmpdir, 'dotfiles')
+        self.home = os.path.join(self.tmpdir, 'home')
+        os.makedirs(os.path.join(self.repo, '.config', 'zed'))
+        os.makedirs(self.home)
+        # settings.json has no include syntax — .json is not in LOCAL_TOOL_TYPES.
+        with open(os.path.join(self.repo, '.config', 'zed', 'settings.json'), 'w') as f:
+            f.write('{}')
+        with open(os.path.join(self.repo, '.config', 'zed', 'settings.macos.json'), 'w') as f:
+            f.write('{"font_size": 14}')
+
+    def tearDown(self):
+        shutil.rmtree(self.tmpdir)
+
+    def test_fails_non_interactive_by_default(self):
+        from dotgarden.symlinks import bootstrap
+
+        # Force non-interactive: stdin is not a tty in pytest captures.
+        with pytest.raises(RuntimeError) as exc_info:
+            bootstrap(self.repo, self.home, 'macos')
+        msg = str(exc_info.value)
+        assert 'No include syntax known' in msg
+        assert '.config/zed/settings.json' in msg
+        assert 'settings.macos.json' in msg
+        # Hint about --skip-unsupported is in the message.
+        assert '--skip-unsupported' in msg
+
+    def test_skip_unsupported_flag(self):
+        from dotgarden.symlinks import bootstrap
+
+        # Should complete cleanly, emit a 'skipped_unsupported' result, no
+        # .local file written.
+        results = bootstrap(self.repo, self.home, 'macos', skip_unsupported=True)
+        kinds = [r[0] for r in results]
+        assert 'skipped_unsupported' in kinds
+        assert not os.path.exists(
+            os.path.join(self.repo, '.config', 'zed', 'settings.json.local')
+        )
+        assert not os.path.exists(
+            os.path.join(self.home, '.config', 'zed', 'settings.json.local')
+        )
+
+    def test_interactive_prompt_skip(self):
+        from unittest.mock import patch
+
+        from dotgarden.symlinks import bootstrap
+
+        with patch('sys.stdin.isatty', return_value=True):
+            with patch('builtins.input', return_value='y'):
+                results = bootstrap(self.repo, self.home, 'macos')
+        kinds = [r[0] for r in results]
+        assert 'skipped_unsupported' in kinds
+
+    def test_interactive_prompt_abort(self):
+        from unittest.mock import patch
+
+        from dotgarden.symlinks import bootstrap
+
+        with patch('sys.stdin.isatty', return_value=True):
+            with patch('builtins.input', return_value='n'):
+                with pytest.raises(RuntimeError) as exc_info:
+                    bootstrap(self.repo, self.home, 'macos')
+                assert 'Aborted' in str(exc_info.value)
+
+    def test_supported_bases_unaffected(self):
+        # Same repo, but add a fish base + variant that IS supported.
+        os.makedirs(os.path.join(self.repo, '.config', 'fish'))
+        with open(os.path.join(self.repo, '.config', 'fish', 'config.fish'), 'w') as f:
+            f.write('')
+        with open(os.path.join(self.repo, '.config', 'fish', 'config.macos.fish'), 'w') as f:
+            f.write('')
+        from dotgarden.symlinks import bootstrap
+
+        # Even when fish is supported, the unsupported zed base blocks
+        # bootstrap non-interactively. --skip-unsupported lets fish proceed.
+        results = bootstrap(self.repo, self.home, 'macos', skip_unsupported=True)
+        fish_local = os.path.join(self.repo, '.config', 'fish', 'config.fish.local')
+        assert os.path.exists(fish_local)
+        with open(fish_local) as f:
+            assert 'config.macos.fish' in f.read()
+
+
 # -- discover_overlay_managed --
 
 
