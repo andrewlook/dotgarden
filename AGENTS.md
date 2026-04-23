@@ -24,7 +24,8 @@ creates symlinks into `$HOME`.
 | `dotgarden/config.py`, `paths.py`, `registry.py`, `symlinks.py` | Core logic. |
 | `tests/` | Pytest unit tests (one file per top-level module). |
 | `tests/integration/` | Bash harness run against the installed `dotfile` binary. |
-| `examples/starter/` | Minimal template, mirrored to `andrewlook/dotgarden-template`. |
+| `examples/starter/` | Git submodule → `andrewlook/dotgarden-template`. Bump with `dev/bump-starter-template` after merging upstream changes there. |
+| `tests/fixtures/` | Fixture repos used by the integration harness (`full/`, `minimal/`). |
 | `completions/` | Bash and zsh completion scripts. |
 | `Dockerfile.test` + `test-docker` | Integration image (Ubuntu + uv + install). |
 | `.github/workflows/tests.yml` | CI: pytest matrix + Docker harness. |
@@ -82,8 +83,10 @@ etc. directly from library code.
   `mise run clean` wipes them.
 - Introducing runtime dependencies beyond `pyyaml` without discussion —
   `dotfile` is meant to `uv tool install` cleanly on any fresh machine.
-- Touching `examples/starter/` without considering the template repo
-  consumers — it's a public onramp.
+- Editing files under `examples/starter/` directly. It's a submodule —
+  edit in `andrewlook/dotgarden-template` and bump the pointer with
+  `dev/bump-starter-template`. Direct edits get lost on the next bump
+  and never reach template consumers anyway.
 - Auto-applying refactors across `dotgarden/cli/commands/` without running
   the full `mise run test` (subcommands share module-level state through
   `dotgarden.config` and re-exports).

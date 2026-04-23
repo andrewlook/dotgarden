@@ -76,8 +76,12 @@ tests/              # Unit tests (pytest)
   integration/      # End-to-end bash harness, runs the installed CLI
 
 examples/
-  starter/          # Minimal starter template (mirrored to andrewlook/dotgarden-template)
-  full/, minimal/   # Reference layouts used as test fixtures
+  starter/          # Git submodule → andrewlook/dotgarden-template (the
+                    # "clone this to start" repo). Bump with
+                    # `dev/bump-starter-template`.
+
+tests/fixtures/     # Reference layouts used by the integration harness
+  full/, minimal/
 
 completions/        # Shell completion definitions for `dotfile`
 hooks/pre-commit    # Auto-stage formatter changes on commit
@@ -147,9 +151,29 @@ git tag v0.3.1
 git push origin v0.3.1
 ```
 
-The `examples/starter/` directory is mirrored to
+## The starter template submodule
+
+`examples/starter/` is a git submodule pointing at
 [`andrewlook/dotgarden-template`](https://github.com/andrewlook/dotgarden-template)
-for users who want a ready-made starting point.
+— the "clone this to start a dotfiles repo" template. Edits to the
+starter happen upstream in `dotgarden-template`; this repo tracks a
+pinned commit.
+
+**Workflow for updating the starter:**
+
+1. Edit in your clone of `andrewlook/dotgarden-template`. Open a PR
+   there, merge it.
+2. Back here, run `dev/bump-starter-template` to pull the new main
+   commit and record a pointer-bump commit (`starter: bump to <sha>`).
+3. Push that commit.
+
+The script refuses to run if this repo has unrelated pending changes
+(so the bump commit stays clean) or if the submodule is already at
+the latest main.
+
+**Cloning this repo**: `git clone --recurse-submodules …` or run
+`git submodule update --init --recursive` after a regular clone, so
+the starter content is available under `examples/starter/`.
 
 ## Design Principles
 

@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+# Pull the latest examples/starter submodule (→ andrewlook/dotgarden-template)
+# and record a pointer bump commit on the outer repo. Run from anywhere —
+# paths resolve relative to this script.
+#
+# Usage:  dev/bump-starter-template
+#
+# Fails cleanly if the outer repo has staged/unstaged changes (other than
+# the submodule pointer itself), or if the submodule is already up to date.
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_DIR="$(dirname "$SCRIPT_DIR")"
+SUBMODULE_DIR="$REPO_DIR/examples/starter"
+
+if [[ ! -d "$SUBMODULE_DIR/.git" && ! -f "$SUBMODULE_DIR/.git" ]]; then
+    echo "ERROR: examples/starter is not a git submodule. Run:" >&2
+    echo "  git submodule update --init --recursive" >&2
+    exit 1
+fi
+
+# Refuse to run if the outer repo has pending changes other than the
+# submodule pointer itself — a pointer bump should be a clean commit.
+pending="$(git -C "$REPO_DIR" status --porcelain | grep -v ' examples/starter$' || true)"
+if [[ -n "$pending" ]]; then
+    echo "ERROR: outer repo has pending changes. Commit or stash first:" >&2
+    echo "$pending" >&2
+    exit 1
+fi
+
+old_sha="$(git -C "$SUBMODULE_DIR" rev-parse HEAD)"
+git -C "$SUBMODULE_DIR" checkout main
+git -C "$SUBMODULE_DIR" pull --ff-only
+new_sha="$(git -C "$SUBMODULE_DIR" rev-parse HEAD)"
+
+if [[ "$old_sha" == "$new_sha" ]]; then
+    echo "Already at the latest dotgarden-template main ($new_sha). Nothing to bump."
+    exit 0
+fi
+
+echo ""
+echo "=== Commits pulled in ==="
+git -C "$SUBMODULE_DIR" log --oneline "$old_sha..$new_sha"
+echo ""
+
+short_sha="$(git -C "$SUBMODULE_DIR" rev-parse --short "$new_sha")"
+git -C "$REPO_DIR" add examples/starter
+git -C "$REPO_DIR" commit -m "starter: bump to $short_sha"
+echo ""
+echo "Committed pointer bump: $short_sha"
+echo "Push with: git push"
