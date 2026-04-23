@@ -10,6 +10,11 @@ jobs:
         python-version: ["3.10", "3.12"]
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Fetch the examples/starter/ submodule so tests that touch it
+          # fail with a clear error (bad reference) rather than a silent
+          # empty-directory mystery.
+          submodules: true
       - uses: astral-sh/setup-uv@v4
       - run: uv run --python ${{ matrix.python-version }} --with pytest --with pyyaml python -m pytest tests/ -v
 
@@ -18,6 +23,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: true
       - name: Build test image
         run: docker build -f Dockerfile.test -t dotgarden-test .
       - name: Run integration harness
