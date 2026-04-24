@@ -1,0 +1,29 @@
+version: 2
+updates:
+  # Python runtime + dev dependencies declared in pyproject.toml.
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "deps"
+      prefix-development: "deps-dev"
+    labels:
+      - "dependencies"
+
+  # Third-party GitHub Actions used in .github/workflows/*.yml. Pairs with
+  # the SHA-pinning policy in this plan: dependabot proposes the new SHA
+  # plus a `# <version>` comment, so reviewers see both at a glance.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "ci"
+    labels:
+      - "ci"
+      - "dependencies"
