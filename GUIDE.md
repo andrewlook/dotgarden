@@ -53,20 +53,22 @@ you don't want before registering your equivalents.
 
 ## 3. Register a `.config/` directory
 
-Two options, pick one:
-
-**Option A — use the convention** (preferred for tools that live under
-`~/.config/<tool>/`). Copy the directory into `~/dotfiles/.config/` and
-bootstrap — no registration needed. Every top-level child of
-`~/dotfiles/.config/` auto-symlinks to `~/.config/<name>`.
+Just run `register` — it detects the `.config/*` convention path and
+skips the registry automatically. The file moves into
+`~/dotfiles/.config/<tool>/`, a symlink goes back to `~/.config/<tool>/`,
+and bootstrap handles the rest on any other machine.
 
 ```bash
-cp -R ~/.config/ghostty ~/dotfiles/.config/ghostty
-rm -rf ~/.config/ghostty     # bootstrap will recreate it as a symlink
+dotfile register ~/.config/ghostty
 ```
 
-**Option B — use `register`** if you want an entry in `__registry__.yaml`
-(e.g. to scope the link with `--os` or `--profile`).
+No `__registry__.yaml` entry is added — the top-level `.config/*`
+auto-discovery takes care of it at bootstrap time.
+
+**Need an entry in the registry anyway?** Pass any of `--category`,
+`--name`, `--os`, or `--profile` to opt into registry mode — useful if
+you want the link gated by OS or profile, or want a custom category
+grouping.
 
 ```bash
 dotfile register ~/.config/ghostty --os macos
