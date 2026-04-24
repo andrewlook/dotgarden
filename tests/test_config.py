@@ -1,7 +1,7 @@
 """Tests for lib.config module."""
 
-import os
 import unittest
+from os.path import realpath  # noqa: TID251
 
 import pytest
 
@@ -147,7 +147,7 @@ def test_find_dotfiles_dir_ignores_env_var_when_missing(monkeypatch, tmp_path):
     (cwd / REGISTRY_FILENAME).write_text("version: '3.0'\n")
     monkeypatch.chdir(cwd)
     # Resolve symlinks on macOS (/var -> /private/var) before comparing.
-    assert _find_dotfiles_dir() == os.path.realpath(str(cwd))
+    assert _find_dotfiles_dir() == realpath(str(cwd))
 
 
 def test_find_dotfiles_dir_uses_cwd_with_registry(monkeypatch, tmp_path):
@@ -158,7 +158,7 @@ def test_find_dotfiles_dir_uses_cwd_with_registry(monkeypatch, tmp_path):
     cwd.mkdir()
     (cwd / REGISTRY_FILENAME).write_text("version: '3.0'\n")
     monkeypatch.chdir(cwd)
-    assert _find_dotfiles_dir() == os.path.realpath(str(cwd))
+    assert _find_dotfiles_dir() == realpath(str(cwd))
 
 
 def test_find_dotfiles_dir_falls_back_to_home_dotfiles(monkeypatch, tmp_path):

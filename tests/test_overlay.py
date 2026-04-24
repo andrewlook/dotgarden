@@ -17,6 +17,8 @@ import os
 import shutil
 import tempfile
 import unittest
+from os import makedirs, readlink  # noqa: TID251
+from os.path import basename, dirname, exists, islink, join  # noqa: TID251
 
 import pytest
 import yaml
@@ -29,20 +31,20 @@ class OverlayTestBase(unittest.TestCase):
 
     def setUp(self):
         self.tmpdir = tempfile.mkdtemp()
-        self.repo = os.path.join(self.tmpdir, 'dotfiles')
-        self.home = os.path.join(self.tmpdir, 'home')
-        self.overlay = os.path.join(self.tmpdir, 'overlay')
-        os.makedirs(self.repo)
-        os.makedirs(self.home)
-        os.makedirs(self.overlay)
+        self.repo = join(self.tmpdir, 'dotfiles')
+        self.home = join(self.tmpdir, 'home')
+        self.overlay = join(self.tmpdir, 'overlay')
+        makedirs(self.repo)
+        makedirs(self.home)
+        makedirs(self.overlay)
 
     def tearDown(self):
         shutil.rmtree(self.tmpdir)
 
     def _touch(self, directory, *names):
         for name in names:
-            path = os.path.join(directory, name)
-            os.makedirs(os.path.dirname(path), exist_ok=True)
+            path = join(directory, name)
+            makedirs(dirname(path), exist_ok=True)
             with open(path, 'w') as f:
                 f.write(f'# {name}')
 
@@ -51,7 +53,7 @@ class OverlayTestBase(unittest.TestCase):
         data = {'version': '3.0', 'profile': profile}
         if extra:
             data.update(extra)
-        with open(os.path.join(self.overlay, '__registry__.yaml'), 'w') as f:
+        with open(join(self.overlay, '__registry__.yaml'), 'w') as f:
             yaml.safe_dump(data, f, sort_keys=False)
 
 
@@ -66,11 +68,11 @@ class TestOverlayBootstrapLinking(OverlayTestBase):
         bootstrap(self.repo, self.home, os_type='macos', profile='work', overlay_dir=self.overlay)
 
         # NOT at ~/.gitconfig — that name is reserved for main-repo content.
-        assert not os.path.exists(os.path.join(self.home, '.gitconfig'))
+        assert not exists(join(self.home, '.gitconfig'))
         # Linked at ~/.work.gitconfig — the profile-prefixed name.
-        link = os.path.join(self.home, '.work.gitconfig')
-        assert os.path.islink(link)
-        target = os.readlink(link)
+        link = join(self.home, '.work.gitconfig')
+        assert islink(link)
+        target = readlink(link)
         # Target is the bare filename in the overlay.
         assert target.endswith('/.gitconfig'), target
 
@@ -82,12 +84,12 @@ class TestOverlayBootstrapLinking(OverlayTestBase):
 
         bootstrap(self.repo, self.home, os_type='macos', profile='work', overlay_dir=self.overlay)
 
-        main_link = os.path.join(self.home, '.bashrc')
-        overlay_link = os.path.join(self.home, '.work.bashrc')
-        assert os.path.islink(main_link)
-        assert os.path.islink(overlay_link)
-        assert self.repo in os.readlink(main_link)
-        assert self.overlay in os.readlink(overlay_link)
+        main_link = join(self.home, '.bashrc')
+        overlay_link = join(self.home, '.work.bashrc')
+        assert islink(main_link)
+        assert islink(overlay_link)
+        assert self.repo in readlink(main_link)
+        assert self.overlay in readlink(overlay_link)
 
     def test_overlay_os_prefixed_filename_rejected(self):
         """OS variants inside an overlay are not supported in v1."""
@@ -130,7 +132,7 @@ class TestOverlayBootstrapLinking(OverlayTestBase):
         from dotgarden.registry import RegistryError
 
         # Write a registry WITHOUT profile:
-        with open(os.path.join(self.overlay, '__registry__.yaml'), 'w') as f:
+        with open(join(self.overlay, '__registry__.yaml'), 'w') as f:
             yaml.safe_dump({'version': '3.0'}, f)
         self._touch(self.overlay, '.gitconfig')
 
@@ -152,12 +154,12 @@ class TestOverlayLocalFiles(OverlayTestBase):
         bootstrap(self.repo, self.home, os_type='macos', profile='work', overlay_dir=self.overlay)
 
         # Overlay file linked at the profile-prefixed name
-        assert os.path.islink(os.path.join(self.home, '.work.zprofile'))
+        assert islink(join(self.home, '.work.zprofile'))
 
         # .local file includes BOTH the OS variant (from main) and the
         # profile variant (renamed from overlay)
-        local_path = os.path.join(self.home, '.zprofile.local')
-        assert os.path.exists(local_path)
+        local_path = join(self.home, '.zprofile.local')
+        assert exists(local_path)
         with open(local_path) as f:
             contents = f.read()
         assert '.macos.zprofile' in contents
@@ -172,7 +174,7 @@ class TestOverlayAbsence(OverlayTestBase):
 
         results = bootstrap(self.repo, self.home, os_type='macos', overlay_dir=None)
 
-        assert os.path.islink(os.path.join(self.home, '.gitconfig'))
+        assert islink(join(self.home, '.gitconfig'))
         assert not any(phase == 'overlay' for _, _, _, phase in results)
 
     def test_overlay_nonexistent_dir_ignored(self):
@@ -185,7 +187,7 @@ class TestOverlayAbsence(OverlayTestBase):
         self._touch(self.repo, '.gitconfig')
 
         results = bootstrap(self.repo, self.home, os_type='macos', overlay_dir='/nonexistent/path')
-        assert os.path.islink(os.path.join(self.home, '.gitconfig'))
+        assert islink(join(self.home, '.gitconfig'))
         assert not any(phase == 'overlay' for _, _, _, phase in results)
 
 
@@ -198,7 +200,7 @@ class TestDotfilesEnv(OverlayTestBase):
 
         bootstrap(self.repo, self.home, os_type='linux', profile='work', overlay_dir=self.overlay)
 
-        env_path = os.path.join(self.home, '.dotfiles_env')
+        env_path = join(self.home, '.dotfiles_env')
         with open(env_path) as f:
             contents = f.read()
         assert 'DOTFILES_OVERLAY' in contents
@@ -209,7 +211,7 @@ class TestDotfilesEnv(OverlayTestBase):
 
         bootstrap(self.repo, self.home, os_type='linux')
 
-        env_path = os.path.join(self.home, '.dotfiles_env')
+        env_path = join(self.home, '.dotfiles_env')
         with open(env_path) as f:
             contents = f.read()
         assert 'DOTFILES_OVERLAY' not in contents
@@ -220,7 +222,7 @@ class TestDotfilesEnv(OverlayTestBase):
 
         bootstrap(self.repo, self.home, os_type='linux', profile=None)
 
-        env_path = os.path.join(self.home, '.dotfiles_env')
+        env_path = join(self.home, '.dotfiles_env')
         with open(env_path) as f:
             contents = f.read()
         assert 'DOTFILES_PROFILE' not in contents
@@ -232,7 +234,7 @@ class TestDotfilesEnv(OverlayTestBase):
 
         bootstrap(self.repo, self.home, os_type='linux')
 
-        env_path = os.path.join(self.home, '.dotfiles_env')
+        env_path = join(self.home, '.dotfiles_env')
         with open(env_path) as f:
             first_line = f.readline()
         assert first_line.startswith('#!/bin/bash')
@@ -240,7 +242,7 @@ class TestDotfilesEnv(OverlayTestBase):
     def test_dotfiles_env_preserves_user_lines(self):
         """Bootstrap must not drop user-added export lines from .dotfiles_env."""
         self._touch(self.repo, '.gitconfig')
-        env_path = os.path.join(self.home, '.dotfiles_env')
+        env_path = join(self.home, '.dotfiles_env')
         with open(env_path, 'w') as f:
             f.write('#!/bin/bash\n')
             f.write('export DOTFILES_OS=linux\n')
@@ -260,39 +262,39 @@ class TestDotfilesEnv(OverlayTestBase):
 class TestRegistryInteraction(OverlayTestBase):
     def test_overlay_registry_duplicate_source_path_skipped(self):
         """Overlay registry entry with same source_path as main registry is skipped."""
-        target = os.path.join(self.home, '.config', 'foo', 'bar')
-        os.makedirs(os.path.dirname(target), exist_ok=True)
+        target = join(self.home, '.config', 'foo', 'bar')
+        makedirs(dirname(target), exist_ok=True)
 
-        main_body = os.path.join(self.repo, '_foo', 'bar')
-        overlay_body = os.path.join(self.overlay, '_foo', 'bar')
-        os.makedirs(os.path.dirname(main_body), exist_ok=True)
-        os.makedirs(os.path.dirname(overlay_body), exist_ok=True)
+        main_body = join(self.repo, '_foo', 'bar')
+        overlay_body = join(self.overlay, '_foo', 'bar')
+        makedirs(dirname(main_body), exist_ok=True)
+        makedirs(dirname(overlay_body), exist_ok=True)
         with open(main_body, 'w') as f:
             f.write('main')
         with open(overlay_body, 'w') as f:
             f.write('overlay')
 
         # Main registry — no profile
-        with open(os.path.join(self.repo, '__registry__.yaml'), 'w') as f:
+        with open(join(self.repo, '__registry__.yaml'), 'w') as f:
             yaml.safe_dump({'version': '3.0', 'foo': [{'_foo/bar': '~/.config/foo/bar'}]}, f)
         # Overlay registry — declares profile + has same entry
         self._overlay_registry(profile='work', extra={'foo': [{'_foo/bar': '~/.config/foo/bar'}]})
 
         bootstrap(self.repo, self.home, os_type='macos', overlay_dir=self.overlay)
 
-        bak = os.path.expanduser('~/.config/foo/bar.bak')
-        assert not os.path.exists(bak), 'overlay should not have backed up the main symlink'
+        bak = os.path.expanduser('~/.config/foo/bar.bak')  # noqa: TID251  (CLITestCase monkey-patches os.path.expanduser)
+        assert not exists(bak), 'overlay should not have backed up the main symlink'
 
     def test_registry_ignore_files_excludes_from_bootstrap(self):
         """Registry-level ignore_files entry must exclude a file from bootstrap."""
         self._touch(self.repo, '.zshrc', 'custom-script.py')
-        with open(os.path.join(self.repo, '__registry__.yaml'), 'w') as f:
+        with open(join(self.repo, '__registry__.yaml'), 'w') as f:
             yaml.safe_dump({'version': '3.0', 'ignore_files': ['custom-script.py']}, f)
 
         bootstrap(self.repo, self.home, os_type='macos')
 
-        assert os.path.islink(os.path.join(self.home, '.zshrc'))
-        assert not os.path.exists(os.path.join(self.home, 'custom-script.py'))
+        assert islink(join(self.home, '.zshrc'))
+        assert not exists(join(self.home, 'custom-script.py'))
 
 
 # -- Overlay .config/<tool>/ nested pre-naming (Unit 4) --
@@ -308,31 +310,31 @@ class TestOverlayDotConfigPreNaming(OverlayTestBase):
     def _write_main_base(self, *paths):
         """Place base files in the main repo's .config/<tool>/ structure."""
         for p in paths:
-            full = os.path.join(self.repo, p)
-            os.makedirs(os.path.dirname(full), exist_ok=True)
+            full = join(self.repo, p)
+            makedirs(dirname(full), exist_ok=True)
             with open(full, 'w') as f:
-                f.write(f'# {os.path.basename(p)}\n')
+                f.write(f'# {basename(p)}\n')
 
     def _write_overlay_nested(self, *paths):
         for p in paths:
-            full = os.path.join(self.overlay, p)
-            os.makedirs(os.path.dirname(full), exist_ok=True)
+            full = join(self.overlay, p)
+            makedirs(dirname(full), exist_ok=True)
             with open(full, 'w') as f:
-                f.write(f'# overlay {os.path.basename(p)}\n')
+                f.write(f'# overlay {basename(p)}\n')
 
     def test_properly_named_overlay_file_accepted(self):
         self._overlay_registry(profile='work')
         self._write_main_base('.config/fish/config.fish')
         self._write_overlay_nested('.config/fish/config.work.fish')
 
-        results = bootstrap(self.repo, self.home, 'linux', profile='work', overlay_dir=self.overlay)
+        bootstrap(self.repo, self.home, 'linux', profile='work', overlay_dir=self.overlay)
 
         # .local was generated and references the overlay's absolute path.
-        local_path = os.path.join(self.home, '.config', 'fish', 'config.fish.local')
-        assert os.path.exists(local_path)
+        local_path = join(self.home, '.config', 'fish', 'config.fish.local')
+        assert exists(local_path)
         with open(local_path) as f:
             content = f.read()
-        overlay_abs = os.path.join(self.overlay, '.config', 'fish', 'config.work.fish')
+        overlay_abs = join(self.overlay, '.config', 'fish', 'config.work.fish')
         assert overlay_abs in content
 
     def test_bare_overlay_file_rejected(self):
@@ -364,11 +366,11 @@ class TestOverlayDotConfigPreNaming(OverlayTestBase):
 
         bootstrap(self.repo, self.home, 'linux', profile='work', overlay_dir=self.overlay)
 
-        local_path = os.path.join(self.home, '.config', 'fish', 'config.fish.local')
-        assert os.path.exists(local_path)
+        local_path = join(self.home, '.config', 'fish', 'config.fish.local')
+        assert exists(local_path)
         with open(local_path) as f:
             content = f.read()
-        overlay_abs = os.path.join(self.overlay, '.config', 'fish', 'config.linux.fish')
+        overlay_abs = join(self.overlay, '.config', 'fish', 'config.linux.fish')
         assert overlay_abs in content
 
     def test_os_tagged_overlay_file_filtered_by_current_os(self):
@@ -379,9 +381,9 @@ class TestOverlayDotConfigPreNaming(OverlayTestBase):
 
         bootstrap(self.repo, self.home, 'linux', profile='work', overlay_dir=self.overlay)
 
-        local_path = os.path.join(self.home, '.config', 'fish', 'config.fish.local')
+        local_path = join(self.home, '.config', 'fish', 'config.fish.local')
         # .local might not even exist if no variants matched.
-        if os.path.exists(local_path):
+        if exists(local_path):
             with open(local_path) as f:
                 content = f.read()
             assert 'config.macos.fish' not in content

@@ -58,6 +58,23 @@ creates symlinks into `$HOME`.
   `dotgarden/registry.py` and adding a load path for the old version. The
   registry version is separate from the package version — format-only.
 
+### `os` / `os.path` imports
+
+Prefer `from os.path import join` and `from os import makedirs, symlink, …`
+over `import os` followed by `os.path.join(...)` / `os.makedirs(...)` calls.
+This keeps test code especially readable — `assert os.path.isfile(os.path.join(repo, '.config', 'fish'))`
+is noisier than `assert isfile(join(repo, '.config', 'fish'))`.
+
+Ruff enforces this via `flake8-tidy-imports` banned-API rules in `ruff.toml`
+— fully-qualified calls get flagged with a suggestion to use the short form.
+The `from` import list at the top of each test file is an ergonomics budget;
+common paths (`join`, `exists`, `isfile`, `islink`, `dirname`, `basename`,
+`makedirs`, `symlink`, `unlink`, `remove`, `readlink`, `realpath`) are worth
+surfacing there.
+
+For non-test code, use judgment — a single-use `os.path.expanduser` is
+fine as a one-off; heavy repetition should still migrate to the short form.
+
 ## Registry version rule
 
 The `version:` field in `__registry__.yaml` tracks **registry format**, not

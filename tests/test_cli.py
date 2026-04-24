@@ -5,6 +5,8 @@ import shutil
 import tempfile
 import unittest
 from argparse import Namespace
+from os import makedirs, readlink, remove, symlink, unlink  # noqa: TID251
+from os.path import dirname, exists, isdir, isfile, islink, join, realpath  # noqa: TID251
 from unittest.mock import patch
 
 import pytest
@@ -24,15 +26,15 @@ class CLITestCase(unittest.TestCase):
 
     def setUp(self):
         self.tmpdir = tempfile.mkdtemp()
-        self.fake_home = os.path.join(self.tmpdir, 'home')
-        self.fake_repo = os.path.join(self.tmpdir, 'dotfiles')
-        os.makedirs(self.fake_home)
-        os.makedirs(self.fake_repo)
+        self.fake_home = join(self.tmpdir, 'home')
+        self.fake_repo = join(self.tmpdir, 'dotfiles')
+        makedirs(self.fake_home)
+        makedirs(self.fake_repo)
 
         self.cfg = {
             'dotfiles_dir': self.fake_repo,
             'home_dir': self.fake_home,
-            'registry_path': os.path.join(self.fake_repo, 'registry.yaml'),
+            'registry_path': join(self.fake_repo, 'registry.yaml'),
         }
         # Patch config.defaults at its source module. Pre-refactor this was
         # `dotgarden.cli.config.defaults` because cli was a single file that
@@ -42,17 +44,23 @@ class CLITestCase(unittest.TestCase):
         self.defaults_patcher = patch('dotgarden.config.defaults', return_value=self.cfg)
         self.defaults_patcher.start()
 
-        self.orig_expanduser = os.path.expanduser
-        os.path.expanduser = lambda p: p.replace('~', self.fake_home) if p.startswith('~') else p
+        # Monkey-patch os.path.expanduser so CLI code (which uses
+        # `os.path.expanduser` via `import os`) sees fake_home as `~`.
+        # Must stay fully-qualified — the short `expanduser` import would
+        # shadow the real module attribute and break the patch.
+        self.orig_expanduser = os.path.expanduser  # noqa: TID251
+        os.path.expanduser = (  # noqa: TID251
+            lambda p: p.replace('~', self.fake_home) if p.startswith('~') else p
+        )
 
     def tearDown(self):
         self.defaults_patcher.stop()
-        os.path.expanduser = self.orig_expanduser
+        os.path.expanduser = self.orig_expanduser  # noqa: TID251
         shutil.rmtree(self.tmpdir)
 
     def create_source_file(self, rel_path, content='test'):
-        abs_path = os.path.join(self.fake_home, rel_path)
-        os.makedirs(os.path.dirname(abs_path), exist_ok=True)
+        abs_path = join(self.fake_home, rel_path)
+        makedirs(dirname(abs_path), exist_ok=True)
         with open(abs_path, 'w') as f:
             f.write(content)
         return abs_path
@@ -70,12 +78,7 @@ class CLITestCase(unittest.TestCase):
         # already opted into registry mode via those signals and we don't
         # want to override the repo_dir choice (os_flag routes into __os__/,
         # not _<category>/).
-        if (
-            category is None
-            and name is None
-            and os_flag is None
-            and profile is None
-        ):
+        if category is None and name is None and os_flag is None and profile is None:
             from dotgarden import paths as _paths
 
             auto = _paths.auto_detect_category(path, self.fake_home)
@@ -128,8 +131,8 @@ class TestRegisterPlacement(CLITestCase):
         for rel_path, kwargs, expected_repo_path, expected_category in REGISTER_PLACEMENT_CASES:
             with self.subTest(expected_repo_path=expected_repo_path):
                 # Reset registry between subtests
-                if os.path.exists(self.cfg['registry_path']):
-                    os.remove(self.cfg['registry_path'])
+                if exists(self.cfg['registry_path']):
+                    remove(self.cfg['registry_path'])
 
                 src = self.create_source_file(rel_path)
                 self.register(src, **kwargs)
@@ -139,8 +142,8 @@ class TestRegisterPlacement(CLITestCase):
                 self.assertEqual(entry['category'], expected_category)
 
                 # Clean up symlink for next subtest
-                if os.path.islink(src):
-                    os.unlink(src)
+                if islink(src):
+                    unlink(src)
 
 
 # -- Table-driven: auto-detect category --
@@ -157,8 +160,8 @@ class TestRegisterAutoDetect(CLITestCase):
     def test_auto_detect(self):
         for rel_path, expected_category in AUTO_DETECT_REGISTER_CASES:
             with self.subTest(expected_category=expected_category):
-                if os.path.exists(self.cfg['registry_path']):
-                    os.remove(self.cfg['registry_path'])
+                if exists(self.cfg['registry_path']):
+                    remove(self.cfg['registry_path'])
 
                 src = self.create_source_file(rel_path)
                 self.register(src)
@@ -166,8 +169,8 @@ class TestRegisterAutoDetect(CLITestCase):
                 entry = self.load_registry()['registered_files'][0]
                 self.assertEqual(entry['category'], expected_category)
 
-                if os.path.islink(src):
-                    os.unlink(src)
+                if islink(src):
+                    unlink(src)
 
 
 # -- Non-table tests for behavior that needs unique setup --
@@ -188,13 +191,13 @@ class TestRegisterEdgeCases(CLITestCase):
         cmd_register(args)
 
         assert len(self.load_registry()['registered_files']) == 0
-        assert not os.path.islink(src)
+        assert not islink(src)
 
     def test_duplicate_fails(self):
         src = self.create_source_file('.duprc')
         self.register(src)
 
-        os.unlink(src)
+        unlink(src)
         with open(src, 'w') as f:
             f.write('dup')
 
@@ -216,8 +219,8 @@ class TestRegisterEdgeCases(CLITestCase):
         src = self.create_source_file('.zshrc', content='# zsh')
         self.register(src)
 
-        target = os.readlink(src)
-        assert target == os.path.join(self.fake_repo, '_uncategorized', '.zshrc')
+        target = readlink(src)
+        assert target == join(self.fake_repo, '_uncategorized', '.zshrc')
         with open(src) as f:
             assert f.read() == '# zsh'
 
@@ -227,16 +230,16 @@ class TestRegisterOverlayRouting(CLITestCase):
 
     def setUp(self):
         super().setUp()
-        self.overlay_dir = os.path.join(self.tmpdir, 'overlay')
-        os.makedirs(self.overlay_dir)
+        self.overlay_dir = join(self.tmpdir, 'overlay')
+        makedirs(self.overlay_dir)
         # Minimum overlay: __registry__.yaml with profile declared.
         import yaml
 
-        with open(os.path.join(self.overlay_dir, '__registry__.yaml'), 'w') as f:
+        with open(join(self.overlay_dir, '__registry__.yaml'), 'w') as f:
             yaml.safe_dump({'version': '3.0', 'profile': 'work'}, f)
 
     def _overlay_registry(self):
-        return reg.load(os.path.join(self.overlay_dir, '__registry__.yaml'))
+        return reg.load(join(self.overlay_dir, '__registry__.yaml'))
 
     def _register_with_overlay(self, path, profile=None):
         args = Namespace(
@@ -259,8 +262,8 @@ class TestRegisterOverlayRouting(CLITestCase):
         self._register_with_overlay(src)
 
         # Symlink at the source still points somewhere; target lives in overlay
-        assert os.path.islink(src)
-        target = os.readlink(src)
+        assert islink(src)
+        target = readlink(src)
         assert target.startswith(self.overlay_dir), f'expected target in overlay, got {target}'
 
         # Main registry is untouched
@@ -294,7 +297,7 @@ class TestRegisterOverlayRouting(CLITestCase):
             self._register_with_overlay(src, profile='home')
 
         # Nothing was moved: source is still a regular file
-        assert os.path.isfile(src) and not os.path.islink(src)
+        assert isfile(src) and not islink(src)
         # Overlay registry still has no entries
         overlay_reg = self._overlay_registry()
         assert len(overlay_reg['registered_files']) == 0
@@ -310,12 +313,12 @@ class TestRegisterOverlayRouting(CLITestCase):
             name=None,
             dry_run=False,
             force=False,
-            overlay=os.path.join(self.tmpdir, 'does-not-exist'),
+            overlay=join(self.tmpdir, 'does-not-exist'),
             yes=True,
         )
         with pytest.raises(SystemExit):
             cmd_register(args)
-        assert os.path.isfile(src) and not os.path.islink(src)
+        assert isfile(src) and not islink(src)
 
     def test_yes_flag_skips_prompt(self):
         """--yes means cmd_register doesn't call input()."""
@@ -533,9 +536,9 @@ class TestRegisterWizard(CLITestCase):
 
         import yaml
 
-        overlay_dir = os.path.join(self.tmpdir, 'overlay-work')
-        os.makedirs(overlay_dir)
-        with open(os.path.join(overlay_dir, '__registry__.yaml'), 'w') as f:
+        overlay_dir = join(self.tmpdir, 'overlay-work')
+        makedirs(overlay_dir)
+        with open(join(overlay_dir, '__registry__.yaml'), 'w') as f:
             yaml.safe_dump({'version': '3.0', 'profile': 'work'}, f)
 
         src = self.create_source_file('.config/thing/x')
@@ -549,7 +552,7 @@ class TestRegisterWizard(CLITestCase):
             cmd_register(self._args(src, overlay=overlay_dir))
 
         # Profile was inferred from overlay, not prompted
-        overlay_reg = reg.load(os.path.join(overlay_dir, '__registry__.yaml'))
+        overlay_reg = reg.load(join(overlay_dir, '__registry__.yaml'))
         entry = overlay_reg['registered_files'][0]
         assert entry['profile'] == 'work'
 
@@ -557,7 +560,7 @@ class TestRegisterWizard(CLITestCase):
 class TestCmdBootstrap(CLITestCase):
     def test_bootstrap_creates_symlinks(self):
         for name in ['.bashrc', '.zshrc']:
-            with open(os.path.join(self.fake_repo, name), 'w') as f:
+            with open(join(self.fake_repo, name), 'w') as f:
                 f.write(f'# {name}')
 
         cmd_bootstrap(
@@ -565,7 +568,7 @@ class TestCmdBootstrap(CLITestCase):
         )
 
         for name in ['.bashrc', '.zshrc']:
-            assert os.path.islink(os.path.join(self.fake_home, name))
+            assert islink(join(self.fake_home, name))
 
     def test_bootstrap_requires_os(self):
         with pytest.raises(SystemExit):
@@ -579,9 +582,9 @@ class TestOverlayResolutionPrecedence(CLITestCase):
 
     def setUp(self):
         super().setUp()
-        self.overlay_flag = os.path.join(self.tmpdir, 'overlay-flag')
-        self.overlay_env = os.path.join(self.tmpdir, 'overlay-env')
-        self.overlay_saved = os.path.join(self.tmpdir, 'overlay-saved')
+        self.overlay_flag = join(self.tmpdir, 'overlay-flag')
+        self.overlay_env = join(self.tmpdir, 'overlay-env')
+        self.overlay_saved = join(self.tmpdir, 'overlay-saved')
         # Each overlay needs a valid __registry__.yaml with profile declared
         # so cmd_bootstrap's overlay-profile validation doesn't error out.
         # All three declare the same profile so --profile=None cleanly
@@ -589,8 +592,8 @@ class TestOverlayResolutionPrecedence(CLITestCase):
         import yaml
 
         for d in (self.overlay_flag, self.overlay_env, self.overlay_saved):
-            os.makedirs(d)
-            with open(os.path.join(d, '__registry__.yaml'), 'w') as f:
+            makedirs(d)
+            with open(join(d, '__registry__.yaml'), 'w') as f:
                 yaml.safe_dump({'version': '3.0', 'profile': 'work'}, f)
 
         # Patch symlinks.bootstrap where cmd_bootstrap imports it from.
@@ -609,7 +612,7 @@ class TestOverlayResolutionPrecedence(CLITestCase):
         super().tearDown()
 
     def _write_saved_overlay(self, path):
-        env_path = os.path.join(self.fake_home, '.dotfiles_env')
+        env_path = join(self.fake_home, '.dotfiles_env')
         with open(env_path, 'w') as f:
             f.write(f'#!/bin/bash\nexport DOTFILES_OS=macos\nexport DOTFILES_OVERLAY={path}\n')
 
@@ -652,7 +655,7 @@ class TestOverlayResolutionPrecedence(CLITestCase):
 
     def test_missing_overlay_path_exits(self):
         """Explicit flag pointing at a nonexistent dir → SystemExit."""
-        bad = os.path.join(self.tmpdir, 'does-not-exist')
+        bad = join(self.tmpdir, 'does-not-exist')
         with pytest.raises(SystemExit):
             self._call(overlay=bad)
 
@@ -666,9 +669,9 @@ class TestCmdUnregister(CLITestCase):
         src = self.create_source_file('.bashrc', content='# my config')
         self.register(src)
 
-        repo_path = os.path.join(self.fake_repo, '_uncategorized', '.bashrc')
-        assert os.path.islink(src)
-        assert os.path.isfile(repo_path)
+        repo_path = join(self.fake_repo, '_uncategorized', '.bashrc')
+        assert islink(src)
+        assert isfile(repo_path)
 
         cmd_unregister(
             Namespace(
@@ -681,11 +684,11 @@ class TestCmdUnregister(CLITestCase):
         )
 
         assert len(self.load_registry()['registered_files']) == 0
-        assert not os.path.islink(src)
-        assert os.path.isfile(src)
+        assert not islink(src)
+        assert isfile(src)
         with open(src) as f:
             assert f.read() == '# my config'
-        assert not os.path.exists(repo_path)
+        assert not exists(repo_path)
 
     def test_unregister_no_restore(self):
         src = self.create_source_file('.zshrc')
@@ -702,8 +705,8 @@ class TestCmdUnregister(CLITestCase):
         )
 
         assert len(self.load_registry()['registered_files']) == 0
-        assert not os.path.islink(src)
-        assert not os.path.exists(os.path.join(self.fake_repo, '_uncategorized', '.zshrc'))
+        assert not islink(src)
+        assert not exists(join(self.fake_repo, '_uncategorized', '.zshrc'))
 
     def test_unregister_dry_run(self):
         src = self.create_source_file('.vimrc')
@@ -721,7 +724,7 @@ class TestCmdUnregister(CLITestCase):
 
         # Nothing changed
         assert len(self.load_registry()['registered_files']) == 1
-        assert os.path.islink(src)
+        assert islink(src)
 
     def test_unregister_by_repo_path(self):
         """Unregister using the repo path (e.g. _fish/config.fish)."""
@@ -742,8 +745,8 @@ class TestCmdUnregister(CLITestCase):
         )
 
         assert len(self.load_registry()['registered_files']) == 0
-        assert not os.path.islink(src)
-        assert os.path.isfile(src)
+        assert not islink(src)
+        assert isfile(src)
 
     def test_unregister_by_source_path(self):
         """Unregister using the full source path."""
@@ -761,7 +764,7 @@ class TestCmdUnregister(CLITestCase):
         )
 
         assert len(self.load_registry()['registered_files']) == 0
-        assert os.path.isfile(src)
+        assert isfile(src)
 
 
 class TestUnregisterSharedRepoPath(CLITestCase):
@@ -790,10 +793,10 @@ class TestUnregisterSharedRepoPath(CLITestCase):
         reg.save(registry, self.cfg['registry_path'], self.fake_repo)
 
         # Create symlink for second entry
-        second_source = os.path.join(self.fake_home, '.codex', 'skills', 'qa')
-        os.makedirs(os.path.dirname(second_source), exist_ok=True)
-        repo_abs = os.path.join(self.fake_repo, first_entry['repo_path'])
-        os.symlink(repo_abs, second_source)
+        second_source = join(self.fake_home, '.codex', 'skills', 'qa')
+        makedirs(dirname(second_source), exist_ok=True)
+        repo_abs = join(self.fake_repo, first_entry['repo_path'])
+        symlink(repo_abs, second_source)
 
         # Unregister first entry (with restore)
         cmd_unregister(
@@ -807,15 +810,15 @@ class TestUnregisterSharedRepoPath(CLITestCase):
         )
 
         # First source was restored (no longer a symlink)
-        assert os.path.isfile(src1)
-        assert not os.path.islink(src1)
+        assert isfile(src1)
+        assert not islink(src1)
 
         # Repo copy is still there (needed by second entry)
-        assert os.path.exists(repo_abs)
+        assert exists(repo_abs)
 
         # Second symlink still works
-        assert os.path.islink(second_source)
-        assert os.path.exists(second_source)
+        assert islink(second_source)
+        assert exists(second_source)
 
         # Registry has one entry left (the codex symlink)
         remaining = self.load_registry()['registered_files']
@@ -878,23 +881,23 @@ class TestDotfileHomeOverride(unittest.TestCase):
         assert os.environ.get('HOME') == pre
 
     def test_set_to_existing_dir_replaces_home(self):
-        fake_home = os.path.join(self.tmpdir, 'fake-home')
-        os.makedirs(fake_home)
+        fake_home = join(self.tmpdir, 'fake-home')
+        makedirs(fake_home)
         os.environ['DOTFILE_HOME'] = fake_home
         _apply_dotfile_home_override()
         assert os.environ['HOME'] == fake_home
         # Subsequent os.path.expanduser uses the overridden HOME.
-        assert os.path.expanduser('~') == fake_home
+        assert os.path.expanduser('~') == fake_home  # noqa: TID251
 
     def test_set_to_missing_dir_exits_nonzero(self):
-        os.environ['DOTFILE_HOME'] = os.path.join(self.tmpdir, 'does-not-exist')
+        os.environ['DOTFILE_HOME'] = join(self.tmpdir, 'does-not-exist')
         with pytest.raises(SystemExit):
             _apply_dotfile_home_override()
 
     def test_relative_path_is_resolved_to_absolute(self):
         rel = 'fake-rel-home'
-        abs_path = os.path.join(self.tmpdir, rel)
-        os.makedirs(abs_path)
+        abs_path = join(self.tmpdir, rel)
+        makedirs(abs_path)
         cwd = os.getcwd()
         try:
             os.chdir(self.tmpdir)
@@ -902,18 +905,18 @@ class TestDotfileHomeOverride(unittest.TestCase):
             _apply_dotfile_home_override()
             assert os.path.isabs(os.environ['HOME'])
             # realpath to handle /var vs /private/var on macOS
-            assert os.path.realpath(os.environ['HOME']) == os.path.realpath(abs_path)
+            assert realpath(os.environ['HOME']) == realpath(abs_path)
         finally:
             os.chdir(cwd)
 
     def test_tilde_expansion(self):
         # Point DOTFILE_HOME at ~/<something> where HOME is temporarily our tmpdir
-        nested = os.path.join(self.tmpdir, 'nested')
-        os.makedirs(nested)
+        nested = join(self.tmpdir, 'nested')
+        makedirs(nested)
         os.environ['HOME'] = self.tmpdir
         os.environ['DOTFILE_HOME'] = '~/nested'
         _apply_dotfile_home_override()
-        assert os.path.realpath(os.environ['HOME']) == os.path.realpath(nested)
+        assert realpath(os.environ['HOME']) == realpath(nested)
 
 
 class TestColorizeTarget(unittest.TestCase):
@@ -977,26 +980,33 @@ class TestRegisterOverlayProfileGating(CLITestCase):
 
     def setUp(self):
         super().setUp()
-        self.overlay_dir = os.path.join(self.tmpdir, 'overlay')
-        os.makedirs(self.overlay_dir)
+        self.overlay_dir = join(self.tmpdir, 'overlay')
+        makedirs(self.overlay_dir)
         import yaml
 
-        with open(os.path.join(self.overlay_dir, '__registry__.yaml'), 'w') as f:
+        with open(join(self.overlay_dir, '__registry__.yaml'), 'w') as f:
             yaml.safe_dump({'version': '3.0', 'profile': 'work'}, f)
         # Simulate a prior `dotfile bootstrap --overlay <overlay>` having
         # written .dotfiles_env in the fake home.
-        with open(os.path.join(self.fake_home, '.dotfiles_env'), 'w') as f:
-            f.write(f'export DOTFILES_OS=macos\n')
+        with open(join(self.fake_home, '.dotfiles_env'), 'w') as f:
+            f.write('export DOTFILES_OS=macos\n')
             f.write(f'export DOTFILES_OVERLAY="{self.overlay_dir}"\n')
 
     def _args(self, path, profile=None, overlay=None):
         return Namespace(
-            path=path, category=None, os=None, profile=profile, name=None,
-            dry_run=False, force=False, overlay=overlay, yes=True,
+            path=path,
+            category=None,
+            os=None,
+            profile=profile,
+            name=None,
+            dry_run=False,
+            force=False,
+            overlay=overlay,
+            yes=True,
         )
 
     def _overlay_registry(self):
-        return reg.load(os.path.join(self.overlay_dir, '__registry__.yaml'))
+        return reg.load(join(self.overlay_dir, '__registry__.yaml'))
 
     def test_no_flags_targets_main_even_with_overlay_in_env(self):
         # The .dotfiles_env overlay is "sticky" from bootstrap, but register
@@ -1007,13 +1017,11 @@ class TestRegisterOverlayProfileGating(CLITestCase):
         cmd_register(self._args(src))
 
         # File moved into main repo, not overlay.
-        assert os.path.isfile(os.path.join(self.fake_repo, '.zshrc'))
-        assert not os.path.exists(os.path.join(self.overlay_dir, '.zshrc'))
+        assert isfile(join(self.fake_repo, '.zshrc'))
+        assert not exists(join(self.overlay_dir, '.zshrc'))
         # Source is now a symlink into main.
-        assert os.path.islink(src)
-        assert os.path.realpath(src) == os.path.realpath(
-            os.path.join(self.fake_repo, '.zshrc')
-        )
+        assert islink(src)
+        assert realpath(src) == realpath(join(self.fake_repo, '.zshrc'))
 
     def test_matching_profile_activates_env_overlay(self):
         # --profile work + env overlay with profile:work → register to overlay.
@@ -1036,7 +1044,7 @@ class TestRegisterOverlayProfileGating(CLITestCase):
         cmd_register(self._args(src, profile='home'))
 
         # File landed in main under the profile dir; overlay registry empty.
-        assert os.path.isfile(os.path.join(self.fake_repo, '__home__', '.home-thing'))
+        assert isfile(join(self.fake_repo, '__home__', '.home-thing'))
         overlay_reg = self._overlay_registry()
         assert len(overlay_reg.get('registered_files', [])) == 0
         # Main has one registry entry, profile=home.
@@ -1063,11 +1071,11 @@ class TestRegisterCrossRegistryConflict(CLITestCase):
 
     def setUp(self):
         super().setUp()
-        self.overlay_dir = os.path.join(self.tmpdir, 'overlay')
-        os.makedirs(self.overlay_dir)
+        self.overlay_dir = join(self.tmpdir, 'overlay')
+        makedirs(self.overlay_dir)
         import yaml
 
-        with open(os.path.join(self.overlay_dir, '__registry__.yaml'), 'w') as f:
+        with open(join(self.overlay_dir, '__registry__.yaml'), 'w') as f:
             yaml.safe_dump({'version': '3.0', 'profile': 'work'}, f)
 
     def test_source_already_symlinked_blocks_re_register(self):
@@ -1077,11 +1085,18 @@ class TestRegisterCrossRegistryConflict(CLITestCase):
         src = self.create_source_file('.zshrc', content='# main')
         self.register(src)
         # Source is now a symlink into main.
-        assert os.path.islink(src)
+        assert islink(src)
         # Try to re-register via the overlay → blocked.
         args = Namespace(
-            path=src, category=None, os=None, profile=None, name=None,
-            dry_run=False, force=False, overlay=self.overlay_dir, yes=True,
+            path=src,
+            category=None,
+            os=None,
+            profile=None,
+            name=None,
+            dry_run=False,
+            force=False,
+            overlay=self.overlay_dir,
+            yes=True,
         )
         with pytest.raises(SystemExit):
             cmd_register(args)
@@ -1095,8 +1110,15 @@ class TestRegisterCrossRegistryConflict(CLITestCase):
         self.register(src, category='cursor')
         # Now source is a symlink into main; try overlay register.
         args = Namespace(
-            path=src, category='cursor', os=None, profile=None, name=None,
-            dry_run=False, force=False, overlay=self.overlay_dir, yes=True,
+            path=src,
+            category='cursor',
+            os=None,
+            profile=None,
+            name=None,
+            dry_run=False,
+            force=False,
+            overlay=self.overlay_dir,
+            yes=True,
         )
         with pytest.raises(SystemExit):
             cmd_register(args)
@@ -1114,8 +1136,15 @@ class TestRegisterConventionSkipsRegistry(CLITestCase):
         # explicitly sets category to preserve legacy test behavior).
         # These tests want the real defaults.
         defaults = dict(
-            path=src, category=None, os=None, profile=None, name=None,
-            dry_run=False, force=False, overlay=None, yes=True,
+            path=src,
+            category=None,
+            os=None,
+            profile=None,
+            name=None,
+            dry_run=False,
+            force=False,
+            overlay=None,
+            yes=True,
         )
         defaults.update(overrides)
         return Namespace(**defaults)
@@ -1127,8 +1156,8 @@ class TestRegisterConventionSkipsRegistry(CLITestCase):
 
         assert len(self.load_registry()['registered_files']) == 0
         # File landed in repo; source is now a symlink.
-        assert os.path.islink(src)
-        assert os.path.isfile(os.path.join(self.fake_repo, '.zshrc'))
+        assert islink(src)
+        assert isfile(join(self.fake_repo, '.zshrc'))
 
     def test_config_path_skips_registry(self):
         # ~/.config/ghostty/config → .config/ghostty/config, no registry.
@@ -1136,22 +1165,22 @@ class TestRegisterConventionSkipsRegistry(CLITestCase):
         cmd_register(self._raw_args(src))
 
         assert len(self.load_registry()['registered_files']) == 0
-        assert os.path.islink(src)
-        repo_dest = os.path.join(self.fake_repo, '.config/ghostty/config')
-        assert os.path.isfile(repo_dest)
+        assert islink(src)
+        repo_dest = join(self.fake_repo, '.config/ghostty/config')
+        assert isfile(repo_dest)
 
     def test_config_directory_skips_registry(self):
         # Whole .config/<tool>/ dir → directory symlink, no registry.
-        src_dir = os.path.join(self.fake_home, '.config', 'ghostty')
-        os.makedirs(src_dir)
-        with open(os.path.join(src_dir, 'config'), 'w') as f:
+        src_dir = join(self.fake_home, '.config', 'ghostty')
+        makedirs(src_dir)
+        with open(join(src_dir, 'config'), 'w') as f:
             f.write('theme = catppuccin')
         cmd_register(self._raw_args(src_dir))
 
         assert len(self.load_registry()['registered_files']) == 0
-        assert os.path.islink(src_dir)
-        repo_dest = os.path.join(self.fake_repo, '.config/ghostty')
-        assert os.path.isdir(repo_dest)
+        assert islink(src_dir)
+        repo_dest = join(self.fake_repo, '.config/ghostty')
+        assert isdir(repo_dest)
 
     def test_non_xdg_path_still_uses_registry(self):
         # ~/Library/Application Support/... isn't convention-discoverable →
@@ -1194,8 +1223,15 @@ class TestRegisterReplacePlaceholder(CLITestCase):
 
     def _args(self, src):
         return Namespace(
-            path=src, category='uncategorized', os=None, profile=None,
-            name=None, dry_run=False, force=False, overlay=None, yes=False,
+            path=src,
+            category='uncategorized',
+            os=None,
+            profile=None,
+            name=None,
+            dry_run=False,
+            force=False,
+            overlay=None,
+            yes=False,
         )
 
     def _args_with_fields(self, src):
@@ -1205,16 +1241,23 @@ class TestRegisterReplacePlaceholder(CLITestCase):
         # os='' / profile='' hits the wizard's `is None` check as False
         # (explicit-empty instead of omitted), skipping those prompts.
         return Namespace(
-            path=src, category='uncategorized', os='', profile='',
-            name=None, dry_run=False, force=False, overlay=None, yes=False,
+            path=src,
+            category='uncategorized',
+            os='',
+            profile='',
+            name=None,
+            dry_run=False,
+            force=False,
+            overlay=None,
+            yes=False,
         )
 
     def test_interactive_yes_replaces_placeholder(self):
         # Placeholder lives in the repo at the same path register will
         # compute (category='uncategorized' → '_uncategorized/.zshrc').
-        repo_dir = os.path.join(self.fake_repo, '_uncategorized')
-        os.makedirs(repo_dir)
-        repo_placeholder = os.path.join(repo_dir, '.zshrc')
+        repo_dir = join(self.fake_repo, '_uncategorized')
+        makedirs(repo_dir)
+        repo_placeholder = join(repo_dir, '.zshrc')
         with open(repo_placeholder, 'w') as f:
             f.write('# placeholder — replace me\n')
 
@@ -1223,43 +1266,46 @@ class TestRegisterReplacePlaceholder(CLITestCase):
         # First prompt: replace-placeholder → 'y'; second: final "Proceed?" → 'y'.
         from unittest.mock import patch as mock_patch
 
-        with mock_patch('sys.stdin.isatty', return_value=True), mock_patch(
-            'builtins.input', side_effect=['y', 'y']
+        with (
+            mock_patch('sys.stdin.isatty', return_value=True),
+            mock_patch('builtins.input', side_effect=['y', 'y']),
         ):
             cmd_register(self._args_with_fields(src))
 
-        assert os.path.islink(src)
+        assert islink(src)
         with open(src) as f:
             assert 'real content' in f.read()
         with open(repo_placeholder) as f:
             assert 'real content' in f.read()
 
     def test_interactive_no_bails(self):
-        repo_dir = os.path.join(self.fake_repo, '_uncategorized')
-        os.makedirs(repo_dir)
-        repo_placeholder = os.path.join(repo_dir, '.zshrc')
+        repo_dir = join(self.fake_repo, '_uncategorized')
+        makedirs(repo_dir)
+        repo_placeholder = join(repo_dir, '.zshrc')
         with open(repo_placeholder, 'w') as f:
             f.write('# placeholder\n')
         src = self.create_source_file('.zshrc', content='# home\n')
 
         from unittest.mock import patch as mock_patch
 
-        with mock_patch('sys.stdin.isatty', return_value=True), mock_patch(
-            'builtins.input', return_value='n'
-        ), pytest.raises(SystemExit):
+        with (
+            mock_patch('sys.stdin.isatty', return_value=True),
+            mock_patch('builtins.input', return_value='n'),
+            pytest.raises(SystemExit),
+        ):
             cmd_register(self._args_with_fields(src))
 
         # Source file untouched; placeholder unchanged.
-        assert os.path.isfile(src) and not os.path.islink(src)
+        assert isfile(src) and not islink(src)
         with open(repo_placeholder) as f:
             assert 'placeholder' in f.read()
 
     def test_non_interactive_without_force_errors(self):
         # CI / piped invocation path: no tty, no --force → still errors,
         # don't silently overwrite checked-in content.
-        repo_dir = os.path.join(self.fake_repo, '_uncategorized')
-        os.makedirs(repo_dir)
-        repo_placeholder = os.path.join(repo_dir, '.zshrc')
+        repo_dir = join(self.fake_repo, '_uncategorized')
+        makedirs(repo_dir)
+        repo_placeholder = join(repo_dir, '.zshrc')
         with open(repo_placeholder, 'w') as f:
             f.write('# placeholder\n')
         src = self.create_source_file('.zshrc', content='# home\n')

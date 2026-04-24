@@ -1,9 +1,10 @@
 """Tests for lib.symlinks module."""
 
-import os
 import shutil
 import tempfile
 import unittest
+from os import makedirs, readlink, remove, symlink, unlink  # noqa: TID251
+from os.path import exists, isdir, islink, join, realpath  # noqa: TID251
 
 import pytest
 
@@ -29,7 +30,7 @@ class TestListDotfiles(unittest.TestCase):
 
     def _touch(self, *names):
         for name in names:
-            open(os.path.join(self.tmpdir, name), 'w').close()
+            open(join(self.tmpdir, name), 'w').close()
 
     def test_lists_files_sorted(self):
         self._touch('.zshrc', '.bashrc', '.aliases')
@@ -45,7 +46,7 @@ class TestListDotfiles(unittest.TestCase):
 
     def test_skips_directories(self):
         self._touch('.bashrc')
-        os.makedirs(os.path.join(self.tmpdir, 'subdir'))
+        makedirs(join(self.tmpdir, 'subdir'))
         assert list_dotfiles(self.tmpdir) == ['.bashrc']
 
     def test_returns_empty_for_nonexistent(self):
@@ -60,37 +61,37 @@ class TestPrepareSymlinkTarget(unittest.TestCase):
         shutil.rmtree(self.tmpdir)
 
     def test_needed_when_link_missing(self):
-        target = os.path.join(self.tmpdir, 'target')
+        target = join(self.tmpdir, 'target')
         open(target, 'w').close()
-        assert prepare_symlink_target(target, os.path.join(self.tmpdir, 'link')) == 'needed'
+        assert prepare_symlink_target(target, join(self.tmpdir, 'link')) == 'needed'
 
     def test_ok_when_already_correct(self):
-        target = os.path.join(self.tmpdir, 'target')
-        link = os.path.join(self.tmpdir, 'link')
+        target = join(self.tmpdir, 'target')
+        link = join(self.tmpdir, 'link')
         open(target, 'w').close()
-        os.symlink(target, link)
+        symlink(target, link)
         assert prepare_symlink_target(target, link) == 'ok'
 
     def test_replaced_backs_up_conflicting_file(self):
-        target = os.path.join(self.tmpdir, 'target')
-        link = os.path.join(self.tmpdir, 'link')
+        target = join(self.tmpdir, 'target')
+        link = join(self.tmpdir, 'link')
         open(target, 'w').close()
         with open(link, 'w') as f:
             f.write('old')
 
         assert prepare_symlink_target(target, link) == 'replaced'
-        assert not os.path.exists(link)
-        assert os.path.exists(link + '.bak')
+        assert not exists(link)
+        assert exists(link + '.bak')
 
     def test_stale_removes_dead_symlink(self):
-        target = os.path.join(self.tmpdir, 'target')
-        link = os.path.join(self.tmpdir, 'link')
+        target = join(self.tmpdir, 'target')
+        link = join(self.tmpdir, 'link')
         open(target, 'w').close()
-        os.symlink('/nonexistent/dead', link)
+        symlink('/nonexistent/dead', link)
 
         assert prepare_symlink_target(target, link) == 'stale'
-        assert not os.path.islink(link)
-        assert not os.path.exists(link + '.bak')
+        assert not islink(link)
+        assert not exists(link + '.bak')
 
 
 class TestCreateSymlink(unittest.TestCase):
@@ -101,19 +102,19 @@ class TestCreateSymlink(unittest.TestCase):
         shutil.rmtree(self.tmpdir)
 
     def test_creates_symlink(self):
-        target = os.path.join(self.tmpdir, 'target')
-        link = os.path.join(self.tmpdir, 'link')
+        target = join(self.tmpdir, 'target')
+        link = join(self.tmpdir, 'link')
         open(target, 'w').close()
         create_symlink(target, link)
-        assert os.path.islink(link)
-        assert os.readlink(link) == target
+        assert islink(link)
+        assert readlink(link) == target
 
     def test_creates_parent_dirs(self):
-        target = os.path.join(self.tmpdir, 'target')
-        link = os.path.join(self.tmpdir, 'deep', 'nested', 'link')
+        target = join(self.tmpdir, 'target')
+        link = join(self.tmpdir, 'deep', 'nested', 'link')
         open(target, 'w').close()
         create_symlink(target, link)
-        assert os.path.islink(link)
+        assert islink(link)
 
 
 # -- Table-driven: check_status --
@@ -122,10 +123,10 @@ class TestCreateSymlink(unittest.TestCase):
 class TestCheckStatus(unittest.TestCase):
     def setUp(self):
         self.tmpdir = tempfile.mkdtemp()
-        self.repo = os.path.join(self.tmpdir, 'dotfiles')
-        self.home = os.path.join(self.tmpdir, 'home')
-        os.makedirs(self.repo)
-        os.makedirs(self.home)
+        self.repo = join(self.tmpdir, 'dotfiles')
+        self.home = join(self.tmpdir, 'home')
+        makedirs(self.repo)
+        makedirs(self.home)
 
     def tearDown(self):
         shutil.rmtree(self.tmpdir)
@@ -142,17 +143,17 @@ class TestCheckStatus(unittest.TestCase):
         for setup, expected_status, expected_ok in cases:
             with self.subTest(setup=setup):
                 # Clean up from previous subtest
-                repo_file = os.path.join(self.repo, '.bashrc')
-                source_file = os.path.join(self.home, '.bashrc')
+                repo_file = join(self.repo, '.bashrc')
+                source_file = join(self.home, '.bashrc')
                 for f in [repo_file, source_file]:
-                    if os.path.islink(f):
-                        os.unlink(f)
-                    elif os.path.exists(f):
-                        os.remove(f)
+                    if islink(f):
+                        unlink(f)
+                    elif exists(f):
+                        remove(f)
 
                 if setup == 'healthy':
                     open(repo_file, 'w').close()
-                    os.symlink(repo_file, source_file)
+                    symlink(repo_file, source_file)
                 elif setup == 'missing':
                     pass
                 elif setup == 'not_symlink':
@@ -171,10 +172,10 @@ class TestCheckStatus(unittest.TestCase):
 class BootstrapTestCase(unittest.TestCase):
     def setUp(self):
         self.tmpdir = tempfile.mkdtemp()
-        self.repo = os.path.join(self.tmpdir, 'dotfiles')
-        self.home = os.path.join(self.tmpdir, 'home')
-        os.makedirs(self.repo)
-        os.makedirs(self.home)
+        self.repo = join(self.tmpdir, 'dotfiles')
+        self.home = join(self.tmpdir, 'home')
+        makedirs(self.repo)
+        makedirs(self.home)
 
     def tearDown(self):
         shutil.rmtree(self.tmpdir)
@@ -194,17 +195,17 @@ class TestBootstrapPhases(BootstrapTestCase):
             with self.subTest(desc=desc):
                 # Reset home dir between subtests
                 shutil.rmtree(self.home)
-                os.makedirs(self.home)
+                makedirs(self.home)
 
-                target_dir = os.path.join(self.repo, dir_suffix) if dir_suffix else self.repo
-                os.makedirs(target_dir, exist_ok=True)
-                with open(os.path.join(target_dir, filename), 'w') as f:
+                target_dir = join(self.repo, dir_suffix) if dir_suffix else self.repo
+                makedirs(target_dir, exist_ok=True)
+                with open(join(target_dir, filename), 'w') as f:
                     f.write(desc)
 
                 bootstrap(self.repo, self.home, os_type=os_type, profile=profile)
 
-                link = os.path.join(self.home, filename)
-                assert os.path.islink(link) == should_link
+                link = join(self.home, filename)
+                assert islink(link) == should_link
 
 
 class TestBootstrapVariantFiltering(BootstrapTestCase):
@@ -213,35 +214,35 @@ class TestBootstrapVariantFiltering(BootstrapTestCase):
     def test_skips_wrong_os_variants(self):
         # Create common + OS variant files
         for name in ['.zprofile', '.macos.zprofile', '.linux.zprofile']:
-            with open(os.path.join(self.repo, name), 'w') as f:
+            with open(join(self.repo, name), 'w') as f:
                 f.write(f'# {name}')
 
         bootstrap(self.repo, self.home, os_type='macos')
 
-        assert os.path.islink(os.path.join(self.home, '.zprofile'))
-        assert os.path.islink(os.path.join(self.home, '.macos.zprofile'))
-        assert not os.path.exists(os.path.join(self.home, '.linux.zprofile'))
+        assert islink(join(self.home, '.zprofile'))
+        assert islink(join(self.home, '.macos.zprofile'))
+        assert not exists(join(self.home, '.linux.zprofile'))
 
     def test_skips_wrong_profile_variants(self):
         for name in ['.gitconfig', '.work.gitconfig', '.home.gitconfig']:
-            with open(os.path.join(self.repo, name), 'w') as f:
+            with open(join(self.repo, name), 'w') as f:
                 f.write(f'# {name}')
 
         bootstrap(self.repo, self.home, os_type='macos', profile='work')
 
-        assert os.path.islink(os.path.join(self.home, '.gitconfig'))
-        assert os.path.islink(os.path.join(self.home, '.work.gitconfig'))
-        assert not os.path.exists(os.path.join(self.home, '.home.gitconfig'))
+        assert islink(join(self.home, '.gitconfig'))
+        assert islink(join(self.home, '.work.gitconfig'))
+        assert not exists(join(self.home, '.home.gitconfig'))
 
     def test_generates_local_files(self):
         for name in ['.zprofile', '.macos.zprofile']:
-            with open(os.path.join(self.repo, name), 'w') as f:
+            with open(join(self.repo, name), 'w') as f:
                 f.write(f'# {name}')
 
         bootstrap(self.repo, self.home, os_type='macos')
 
-        local_path = os.path.join(self.home, '.zprofile.local')
-        assert os.path.exists(local_path)
+        local_path = join(self.home, '.zprofile.local')
+        assert exists(local_path)
         with open(local_path) as f:
             contents = f.read()
         assert '.macos.zprofile' in contents
@@ -249,29 +250,29 @@ class TestBootstrapVariantFiltering(BootstrapTestCase):
 
 class TestBootstrapBehavior(BootstrapTestCase):
     def test_raises_on_conflict(self):
-        with open(os.path.join(self.repo, '.conflict'), 'w') as f:
+        with open(join(self.repo, '.conflict'), 'w') as f:
             f.write('common')
-        os_dir = os.path.join(self.repo, '__macos__')
-        os.makedirs(os_dir)
-        with open(os.path.join(os_dir, '.conflict'), 'w') as f:
+        os_dir = join(self.repo, '__macos__')
+        makedirs(os_dir)
+        with open(join(os_dir, '.conflict'), 'w') as f:
             f.write('macos')
 
         with pytest.raises(ValueError):
             bootstrap(self.repo, self.home, os_type='macos')
 
     def test_idempotent(self):
-        with open(os.path.join(self.repo, '.bashrc'), 'w') as f:
+        with open(join(self.repo, '.bashrc'), 'w') as f:
             f.write('# bash')
 
         bootstrap(self.repo, self.home, os_type='macos')
         bootstrap(self.repo, self.home, os_type='macos')  # should not fail
 
-        assert os.path.islink(os.path.join(self.home, '.bashrc'))
+        assert islink(join(self.home, '.bashrc'))
 
     def test_creates_dotfiles_env(self):
         bootstrap(self.repo, self.home, os_type='linux', profile='home')
 
-        env_path = os.path.join(self.home, '.dotfiles_env')
+        env_path = join(self.home, '.dotfiles_env')
         content = open(env_path).read()
         assert 'DOTFILES_OS=linux' in content
         assert 'DOTFILES_PROFILE=home' in content
@@ -282,9 +283,9 @@ class TestBootstrapBehavior(BootstrapTestCase):
     def test_dry_run_labels_would_update_for_existing_file(self):
         """A regular file sitting at the link path must be labeled would_update,
         not would_create — bootstrap will back it up and replace."""
-        with open(os.path.join(self.repo, '.bashrc'), 'w') as f:
+        with open(join(self.repo, '.bashrc'), 'w') as f:
             f.write('# bash')
-        with open(os.path.join(self.home, '.bashrc'), 'w') as f:
+        with open(join(self.home, '.bashrc'), 'w') as f:
             f.write('# pre-existing')
 
         results = bootstrap(self.repo, self.home, os_type='macos', dry_run=True)
@@ -294,12 +295,12 @@ class TestBootstrapBehavior(BootstrapTestCase):
 
     def test_dry_run_labels_would_update_for_existing_symlink(self):
         """A live symlink pointing somewhere else must be labeled would_update."""
-        with open(os.path.join(self.repo, '.bashrc'), 'w') as f:
+        with open(join(self.repo, '.bashrc'), 'w') as f:
             f.write('# bash')
-        other_target = os.path.join(self.tmpdir, 'other-file')
+        other_target = join(self.tmpdir, 'other-file')
         with open(other_target, 'w') as f:
             f.write('# other')
-        os.symlink(other_target, os.path.join(self.home, '.bashrc'))
+        symlink(other_target, join(self.home, '.bashrc'))
 
         results = bootstrap(self.repo, self.home, os_type='macos', dry_run=True)
 
@@ -307,7 +308,7 @@ class TestBootstrapBehavior(BootstrapTestCase):
         assert actions['.bashrc'] == 'would_update', actions
 
     def test_dry_run_labels_would_create_for_absent(self):
-        with open(os.path.join(self.repo, '.bashrc'), 'w') as f:
+        with open(join(self.repo, '.bashrc'), 'w') as f:
             f.write('# bash')
 
         results = bootstrap(self.repo, self.home, os_type='macos', dry_run=True)
@@ -319,7 +320,7 @@ class TestBootstrapBehavior(BootstrapTestCase):
 class TestDiscoverBootstrapManaged(BootstrapTestCase):
     def test_discovers_root_files(self):
         for name in ['.bashrc', '.zshrc']:
-            open(os.path.join(self.repo, name), 'w').close()
+            open(join(self.repo, name), 'w').close()
 
         entries = discover_bootstrap_managed(
             self.repo, self.home, {'version': '1.0', 'registered_files': []}
@@ -329,7 +330,7 @@ class TestDiscoverBootstrapManaged(BootstrapTestCase):
         assert '(bootstrap) .zshrc' in ids
 
     def test_excludes_registered_files(self):
-        open(os.path.join(self.repo, '.bashrc'), 'w').close()
+        open(join(self.repo, '.bashrc'), 'w').close()
 
         entries = discover_bootstrap_managed(
             self.repo,
@@ -342,8 +343,8 @@ class TestDiscoverBootstrapManaged(BootstrapTestCase):
 class TestFindSymlinkDirs(unittest.TestCase):
     def setUp(self):
         self.tmpdir = tempfile.mkdtemp()
-        self.home = os.path.join(self.tmpdir, 'home')
-        os.makedirs(self.home)
+        self.home = join(self.tmpdir, 'home')
+        makedirs(self.home)
 
     def tearDown(self):
         shutil.rmtree(self.tmpdir)
@@ -354,11 +355,11 @@ class TestFindSymlinkDirs(unittest.TestCase):
         assert self.home in dirs
 
     def test_includes_registry_source_parents(self):
-        config_dir = os.path.join(self.home, '.config', 'zed')
-        os.makedirs(config_dir)
+        config_dir = join(self.home, '.config', 'zed')
+        makedirs(config_dir)
         registry = {
             'registered_files': [
-                {'source_path': os.path.join(config_dir, 'settings.json')},
+                {'source_path': join(config_dir, 'settings.json')},
             ]
         }
         dirs = find_symlink_dirs(self.home, registry)
@@ -382,9 +383,9 @@ class TestFindStaleSymlinks(unittest.TestCase):
         shutil.rmtree(self.tmpdir)
 
     def test_finds_broken_symlinks(self):
-        dead_target = os.path.join(self.tmpdir, 'gone')
-        link = os.path.join(self.tmpdir, '.old-config')
-        os.symlink(dead_target, link)
+        dead_target = join(self.tmpdir, 'gone')
+        link = join(self.tmpdir, '.old-config')
+        symlink(dead_target, link)
 
         stale = find_stale_symlinks([self.tmpdir])
         assert len(stale) == 1
@@ -392,15 +393,15 @@ class TestFindStaleSymlinks(unittest.TestCase):
         assert stale[0][1] == dead_target
 
     def test_ignores_healthy_symlinks(self):
-        target = os.path.join(self.tmpdir, 'exists')
+        target = join(self.tmpdir, 'exists')
         open(target, 'w').close()
-        os.symlink(target, os.path.join(self.tmpdir, 'link'))
+        symlink(target, join(self.tmpdir, 'link'))
 
         stale = find_stale_symlinks([self.tmpdir])
         assert len(stale) == 0
 
     def test_ignores_regular_files(self):
-        open(os.path.join(self.tmpdir, 'regular'), 'w').close()
+        open(join(self.tmpdir, 'regular'), 'w').close()
 
         stale = find_stale_symlinks([self.tmpdir])
         assert len(stale) == 0
@@ -410,13 +411,13 @@ class TestFindStaleSymlinks(unittest.TestCase):
         assert len(stale) == 0
 
     def test_multiple_dirs(self):
-        dir_a = os.path.join(self.tmpdir, 'a')
-        dir_b = os.path.join(self.tmpdir, 'b')
-        os.makedirs(dir_a)
-        os.makedirs(dir_b)
+        dir_a = join(self.tmpdir, 'a')
+        dir_b = join(self.tmpdir, 'b')
+        makedirs(dir_a)
+        makedirs(dir_b)
 
-        os.symlink('/gone1', os.path.join(dir_a, 'stale1'))
-        os.symlink('/gone2', os.path.join(dir_b, 'stale2'))
+        symlink('/gone1', join(dir_a, 'stale1'))
+        symlink('/gone2', join(dir_b, 'stale2'))
 
         stale = find_stale_symlinks([dir_a, dir_b])
         assert len(stale) == 2
@@ -430,22 +431,22 @@ class TestListDotConfigChildren(unittest.TestCase):
 
     def setUp(self):
         self.tmpdir = tempfile.mkdtemp()
-        self.repo = os.path.join(self.tmpdir, 'dotfiles')
-        os.makedirs(os.path.join(self.repo, '.config'))
+        self.repo = join(self.tmpdir, 'dotfiles')
+        makedirs(join(self.repo, '.config'))
 
     def tearDown(self):
         shutil.rmtree(self.tmpdir)
 
     def _mkdir(self, *names):
         for name in names:
-            os.makedirs(os.path.join(self.repo, '.config', name))
+            makedirs(join(self.repo, '.config', name))
 
     def _touch(self, *names):
         for name in names:
-            open(os.path.join(self.repo, '.config', name), 'w').close()
+            open(join(self.repo, '.config', name), 'w').close()
 
     def test_empty_when_no_config_dir(self):
-        shutil.rmtree(os.path.join(self.repo, '.config'))
+        shutil.rmtree(join(self.repo, '.config'))
         assert list_dot_config_children(self.repo) == []
 
     def test_lists_directories_and_files(self):
@@ -484,10 +485,10 @@ class TestDiscoverBootstrapManagedDotConfig(unittest.TestCase):
 
     def setUp(self):
         self.tmpdir = tempfile.mkdtemp()
-        self.repo = os.path.join(self.tmpdir, 'dotfiles')
-        self.home = os.path.join(self.tmpdir, 'home')
-        os.makedirs(self.repo)
-        os.makedirs(self.home)
+        self.repo = join(self.tmpdir, 'dotfiles')
+        self.home = join(self.tmpdir, 'home')
+        makedirs(self.repo)
+        makedirs(self.home)
 
     def tearDown(self):
         shutil.rmtree(self.tmpdir)
@@ -496,15 +497,15 @@ class TestDiscoverBootstrapManagedDotConfig(unittest.TestCase):
         return {'version': '3.0', 'registered_files': []}
 
     def test_emits_dot_config_entries(self):
-        os.makedirs(os.path.join(self.repo, '.config', 'fish'))
-        os.makedirs(os.path.join(self.repo, '.config', 'ghostty'))
+        makedirs(join(self.repo, '.config', 'fish'))
+        makedirs(join(self.repo, '.config', 'ghostty'))
         entries = discover_bootstrap_managed(self.repo, self.home, self._empty_registry())
         sources = {e['source_path'] for e in entries}
         assert '~/.config/fish' in sources
         assert '~/.config/ghostty' in sources
 
     def test_dot_config_entry_shape(self):
-        os.makedirs(os.path.join(self.repo, '.config', 'fish'))
+        makedirs(join(self.repo, '.config', 'fish'))
         entries = discover_bootstrap_managed(self.repo, self.home, self._empty_registry())
         fish_entry = next(e for e in entries if e['source_path'] == '~/.config/fish')
         assert fish_entry['repo_path'] == '.config/fish'
@@ -514,7 +515,7 @@ class TestDiscoverBootstrapManagedDotConfig(unittest.TestCase):
         assert fish_entry['profile'] is None
 
     def test_registry_entry_takes_precedence(self):
-        os.makedirs(os.path.join(self.repo, '.config', 'fish'))
+        makedirs(join(self.repo, '.config', 'fish'))
         registry = {
             'version': '3.0',
             'registered_files': [
@@ -534,8 +535,8 @@ class TestDiscoverBootstrapManagedDotConfig(unittest.TestCase):
         assert '~/.config/fish' not in sources
 
     def test_respects_registry_ignore_dirs(self):
-        os.makedirs(os.path.join(self.repo, '.config', 'fish'))
-        os.makedirs(os.path.join(self.repo, '.config', 'private'))
+        makedirs(join(self.repo, '.config', 'fish'))
+        makedirs(join(self.repo, '.config', 'private'))
         registry = {
             'version': '3.0',
             'registered_files': [],
@@ -552,12 +553,12 @@ class TestBootstrapDotConfig(unittest.TestCase):
 
     def setUp(self):
         self.tmpdir = tempfile.mkdtemp()
-        self.repo = os.path.join(self.tmpdir, 'dotfiles')
-        self.home = os.path.join(self.tmpdir, 'home')
-        os.makedirs(os.path.join(self.repo, '.config', 'fish', 'conf.d'))
-        os.makedirs(self.home)
+        self.repo = join(self.tmpdir, 'dotfiles')
+        self.home = join(self.tmpdir, 'home')
+        makedirs(join(self.repo, '.config', 'fish', 'conf.d'))
+        makedirs(self.home)
         # A real file inside the fish dir so we can verify it's visible through the symlink.
-        with open(os.path.join(self.repo, '.config', 'fish', 'config.fish'), 'w') as f:
+        with open(join(self.repo, '.config', 'fish', 'config.fish'), 'w') as f:
             f.write('# fish config\n')
 
     def tearDown(self):
@@ -565,34 +566,32 @@ class TestBootstrapDotConfig(unittest.TestCase):
 
     def test_directory_symlink_created(self):
         bootstrap(self.repo, self.home, 'macos')
-        home_fish = os.path.join(self.home, '.config', 'fish')
-        assert os.path.islink(home_fish)
-        assert os.path.realpath(home_fish) == os.path.realpath(
-            os.path.join(self.repo, '.config', 'fish')
-        )
+        home_fish = join(self.home, '.config', 'fish')
+        assert islink(home_fish)
+        assert realpath(home_fish) == realpath(join(self.repo, '.config', 'fish'))
 
     def test_contents_visible_through_symlink(self):
         bootstrap(self.repo, self.home, 'macos')
-        home_cfg = os.path.join(self.home, '.config', 'fish', 'config.fish')
-        assert os.path.exists(home_cfg)
+        home_cfg = join(self.home, '.config', 'fish', 'config.fish')
+        assert exists(home_cfg)
         with open(home_cfg) as f:
             assert 'fish config' in f.read()
 
     def test_pre_existing_home_dir_backed_up(self):
         # User already has ~/.config/fish/ as a real directory with content.
-        home_fish = os.path.join(self.home, '.config', 'fish')
-        os.makedirs(home_fish)
-        with open(os.path.join(home_fish, 'pre-existing.fish'), 'w') as f:
+        home_fish = join(self.home, '.config', 'fish')
+        makedirs(home_fish)
+        with open(join(home_fish, 'pre-existing.fish'), 'w') as f:
             f.write('# pre-existing\n')
 
         bootstrap(self.repo, self.home, 'macos')
 
         # The directory is now a symlink to the repo.
-        assert os.path.islink(home_fish)
+        assert islink(home_fish)
         # Pre-existing content was backed up to a .bak neighbour.
         bak = home_fish + '.bak'
-        assert os.path.isdir(bak)
-        assert os.path.exists(os.path.join(bak, 'pre-existing.fish'))
+        assert isdir(bak)
+        assert exists(join(bak, 'pre-existing.fish'))
 
     def test_idempotent_rerun(self):
         bootstrap(self.repo, self.home, 'macos')
@@ -603,14 +602,14 @@ class TestBootstrapDotConfig(unittest.TestCase):
 
     def test_dry_run_does_not_create(self):
         bootstrap(self.repo, self.home, 'macos', dry_run=True)
-        home_fish = os.path.join(self.home, '.config', 'fish')
-        assert not os.path.exists(home_fish)
+        home_fish = join(self.home, '.config', 'fish')
+        assert not exists(home_fish)
 
     def test_no_config_dir_in_repo_skips_phase(self):
-        shutil.rmtree(os.path.join(self.repo, '.config'))
+        shutil.rmtree(join(self.repo, '.config'))
         # Should not raise, and should not create anything under ~/.config.
         bootstrap(self.repo, self.home, 'macos')
-        assert not os.path.exists(os.path.join(self.home, '.config'))
+        assert not exists(join(self.home, '.config'))
 
 
 if __name__ == '__main__':

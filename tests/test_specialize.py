@@ -5,11 +5,12 @@ nested `.config/<tool>/<base>` paths (`.config/fish/config.fish` →
 `.config/fish/config.macos.fish`, etc.).
 """
 
-import os
 import shutil
 import tempfile
 import unittest
 from argparse import Namespace
+from os import makedirs  # noqa: TID251
+from os.path import dirname, exists, join  # noqa: TID251
 from unittest.mock import patch
 
 import pytest
@@ -23,14 +24,14 @@ class SpecializeTestCase(unittest.TestCase):
 
     def setUp(self):
         self.tmpdir = tempfile.mkdtemp()
-        self.fake_home = os.path.join(self.tmpdir, 'home')
-        self.fake_repo = os.path.join(self.tmpdir, 'dotfiles')
-        os.makedirs(self.fake_home)
-        os.makedirs(self.fake_repo)
+        self.fake_home = join(self.tmpdir, 'home')
+        self.fake_repo = join(self.tmpdir, 'dotfiles')
+        makedirs(self.fake_home)
+        makedirs(self.fake_repo)
         self.cfg = {
             'dotfiles_dir': self.fake_repo,
             'home_dir': self.fake_home,
-            'registry_path': os.path.join(self.fake_repo, '__registry__.yaml'),
+            'registry_path': join(self.fake_repo, '__registry__.yaml'),
         }
         self.defaults_patcher = patch('dotgarden.config.defaults', return_value=self.cfg)
         self.defaults_patcher.start()
@@ -45,8 +46,8 @@ class SpecializeTestCase(unittest.TestCase):
             yaml.safe_dump(data, f, sort_keys=False)
 
     def _touch(self, rel, contents=''):
-        path = os.path.join(self.fake_repo, rel)
-        os.makedirs(os.path.dirname(path) or self.fake_repo, exist_ok=True)
+        path = join(self.fake_repo, rel)
+        makedirs(dirname(path) or self.fake_repo, exist_ok=True)
         with open(path, 'w') as f:
             f.write(contents)
         return path
@@ -55,7 +56,7 @@ class SpecializeTestCase(unittest.TestCase):
         return Namespace(kind=kind, dotfile=dotfile, dry_run=dry_run)
 
     def _read(self, rel):
-        with open(os.path.join(self.fake_repo, rel)) as f:
+        with open(join(self.fake_repo, rel)) as f:
             return f.read()
 
 
@@ -69,8 +70,8 @@ class TestSpecializeRootOs(SpecializeTestCase):
 
         cmd_specialize(self._args('os', '.gitconfig'))
 
-        assert os.path.exists(os.path.join(self.fake_repo, '.macos.gitconfig'))
-        assert os.path.exists(os.path.join(self.fake_repo, '.linux.gitconfig'))
+        assert exists(join(self.fake_repo, '.macos.gitconfig'))
+        assert exists(join(self.fake_repo, '.linux.gitconfig'))
 
     def test_adds_git_include_to_base(self):
         self._write_registry(os=['macos', 'linux'])
@@ -104,8 +105,8 @@ class TestSpecializeRootOs(SpecializeTestCase):
         cmd_specialize(self._args('os', '.gitconfig'))
 
         # DEFAULT_OS_NAMES is ['macos', 'linux']
-        assert os.path.exists(os.path.join(self.fake_repo, '.macos.gitconfig'))
-        assert os.path.exists(os.path.join(self.fake_repo, '.linux.gitconfig'))
+        assert exists(join(self.fake_repo, '.macos.gitconfig'))
+        assert exists(join(self.fake_repo, '.linux.gitconfig'))
 
     def test_normalizes_missing_leading_dot(self):
         # Accept `gitconfig` as input; treat as `.gitconfig`.
@@ -114,7 +115,7 @@ class TestSpecializeRootOs(SpecializeTestCase):
 
         cmd_specialize(self._args('os', 'gitconfig'))
 
-        assert os.path.exists(os.path.join(self.fake_repo, '.macos.gitconfig'))
+        assert exists(join(self.fake_repo, '.macos.gitconfig'))
 
     def test_idempotent_skip_existing(self):
         self._write_registry(os=['macos', 'linux'])
@@ -125,7 +126,7 @@ class TestSpecializeRootOs(SpecializeTestCase):
 
         # Existing file is untouched; linux variant was created.
         assert self._read('.macos.gitconfig') == '# pre-existing'
-        assert os.path.exists(os.path.join(self.fake_repo, '.linux.gitconfig'))
+        assert exists(join(self.fake_repo, '.linux.gitconfig'))
 
     def test_does_not_duplicate_include_line(self):
         self._write_registry(os=['macos'])
@@ -142,7 +143,7 @@ class TestSpecializeRootOs(SpecializeTestCase):
 
         cmd_specialize(self._args('os', '.gitconfig', dry_run=True))
 
-        assert not os.path.exists(os.path.join(self.fake_repo, '.macos.gitconfig'))
+        assert not exists(join(self.fake_repo, '.macos.gitconfig'))
         assert self._read('.gitconfig') == ''
 
     def test_missing_dotfile_errors(self):
@@ -159,8 +160,8 @@ class TestSpecializeRootProfile(SpecializeTestCase):
 
         cmd_specialize(self._args('profile', '.zprofile'))
 
-        assert os.path.exists(os.path.join(self.fake_repo, '.work.zprofile'))
-        assert os.path.exists(os.path.join(self.fake_repo, '.home.zprofile'))
+        assert exists(join(self.fake_repo, '.work.zprofile'))
+        assert exists(join(self.fake_repo, '.home.zprofile'))
 
 
 # -- Nested .config/<tool>/ specialization (new behavior) --
@@ -173,12 +174,8 @@ class TestSpecializeNested(SpecializeTestCase):
 
         cmd_specialize(self._args('os', '.config/fish/config.fish'))
 
-        assert os.path.exists(
-            os.path.join(self.fake_repo, '.config/fish/config.macos.fish')
-        )
-        assert os.path.exists(
-            os.path.join(self.fake_repo, '.config/fish/config.linux.fish')
-        )
+        assert exists(join(self.fake_repo, '.config/fish/config.macos.fish'))
+        assert exists(join(self.fake_repo, '.config/fish/config.linux.fish'))
 
     def test_creates_nested_profile_variants(self):
         self._write_registry(profiles=['work', 'home'])
@@ -186,12 +183,8 @@ class TestSpecializeNested(SpecializeTestCase):
 
         cmd_specialize(self._args('profile', '.config/fish/config.fish'))
 
-        assert os.path.exists(
-            os.path.join(self.fake_repo, '.config/fish/config.work.fish')
-        )
-        assert os.path.exists(
-            os.path.join(self.fake_repo, '.config/fish/config.home.fish')
-        )
+        assert exists(join(self.fake_repo, '.config/fish/config.work.fish'))
+        assert exists(join(self.fake_repo, '.config/fish/config.home.fish'))
 
     def test_nested_include_uses_fish_syntax(self):
         self._write_registry(os=['macos', 'linux'])
@@ -210,9 +203,7 @@ class TestSpecializeNested(SpecializeTestCase):
 
         cmd_specialize(self._args('os', '.config/fish/config.fish', dry_run=True))
 
-        assert not os.path.exists(
-            os.path.join(self.fake_repo, '.config/fish/config.macos.fish')
-        )
+        assert not exists(join(self.fake_repo, '.config/fish/config.macos.fish'))
 
     def test_nested_extensionless_ghostty(self):
         self._write_registry(os=['macos'])

@@ -1,9 +1,9 @@
 """Tests for lib.registry module."""
 
-import os
 import shutil
 import tempfile
 import unittest
+from os.path import join  # noqa: TID251
 
 import pytest
 import yaml
@@ -41,7 +41,7 @@ class TestDeriveId(unittest.TestCase):
 class TestLoad(unittest.TestCase):
     def setUp(self):
         self.tmpdir = tempfile.mkdtemp()
-        self.registry_path = os.path.join(self.tmpdir, 'registry.yaml')
+        self.registry_path = join(self.tmpdir, 'registry.yaml')
 
     def tearDown(self):
         shutil.rmtree(self.tmpdir)
@@ -159,13 +159,13 @@ fish:
 
         # v3.0 (compact YAML) — already covered by test_loads_v3_compact above.
         # v2.0 (verbose YAML)
-        v2_path = os.path.join(self.tmpdir, 'v2.yaml')
+        v2_path = join(self.tmpdir, 'v2.yaml')
         with open(v2_path, 'w') as f:
             yaml.safe_dump({'version': '2.0', 'registered_files': []}, f)
         assert load(v2_path)['version'] == '2.0'
 
         # v1.0 (legacy JSON)
-        v1_path = os.path.join(self.tmpdir, 'v1.json')
+        v1_path = join(self.tmpdir, 'v1.json')
         with open(v1_path, 'w') as f:
             json.dump({'version': '1.0', 'registered_files': []}, f)
         assert load(v1_path)['version'] == '1.0'
@@ -189,7 +189,7 @@ skills:
 class TestSave(unittest.TestCase):
     def setUp(self):
         self.tmpdir = tempfile.mkdtemp()
-        self.registry_path = os.path.join(self.tmpdir, 'registry.yaml')
+        self.registry_path = join(self.tmpdir, 'registry.yaml')
 
     def tearDown(self):
         shutil.rmtree(self.tmpdir)
@@ -422,7 +422,7 @@ class TestDeriveIdEdgeCases(unittest.TestCase):
 class TestRoundtrip(unittest.TestCase):
     def setUp(self):
         self.tmpdir = tempfile.mkdtemp()
-        self.registry_path = os.path.join(self.tmpdir, 'registry.yaml')
+        self.registry_path = join(self.tmpdir, 'registry.yaml')
 
     def tearDown(self):
         shutil.rmtree(self.tmpdir)

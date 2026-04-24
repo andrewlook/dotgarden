@@ -4,6 +4,8 @@ import os
 import shutil
 import tempfile
 import unittest
+from os import makedirs, symlink  # noqa: TID251
+from os.path import dirname, exists, join  # noqa: TID251
 
 import pytest
 import yaml
@@ -91,6 +93,7 @@ FORMAT_CASES = [
     ),
 ]
 
+
 @pytest.mark.parametrize(
     'tool_type,variant,expected', FORMAT_CASES, ids=[c[0] for c in FORMAT_CASES]
 )
@@ -110,7 +113,7 @@ class TestFindVariantFiles(unittest.TestCase):
 
     def _touch(self, *names):
         for name in names:
-            open(os.path.join(self.tmpdir, name), 'w').close()
+            open(join(self.tmpdir, name), 'w').close()
 
     def test_finds_os_variants(self):
         self._touch('.zprofile', '.macos.zprofile', '.linux.zprofile')
@@ -139,7 +142,7 @@ class TestFindVariantFiles(unittest.TestCase):
 
     def test_ignores_directories(self):
         self._touch('.macos.zprofile')
-        os.makedirs(os.path.join(self.tmpdir, '.macos.config'))
+        makedirs(join(self.tmpdir, '.macos.config'))
         result = find_variant_files(self.tmpdir, 'macos')
         assert '.zprofile' in result
 
@@ -150,17 +153,17 @@ class TestFindVariantFiles(unittest.TestCase):
 class TestGenerateLocalFiles(unittest.TestCase):
     def setUp(self):
         self.tmpdir = tempfile.mkdtemp()
-        self.repo = os.path.join(self.tmpdir, 'dotfiles')
-        self.home = os.path.join(self.tmpdir, 'home')
-        os.makedirs(self.repo)
-        os.makedirs(self.home)
+        self.repo = join(self.tmpdir, 'dotfiles')
+        self.home = join(self.tmpdir, 'home')
+        makedirs(self.repo)
+        makedirs(self.home)
 
     def tearDown(self):
         shutil.rmtree(self.tmpdir)
 
     def _touch_repo(self, *names):
         for name in names:
-            open(os.path.join(self.repo, name), 'w').close()
+            open(join(self.repo, name), 'w').close()
 
     def test_creates_shell_local(self):
         self._touch_repo('.zprofile', '.macos.zprofile', '.work.zprofile')
@@ -175,7 +178,7 @@ class TestGenerateLocalFiles(unittest.TestCase):
         assert '[[ -f' in contents
 
         # File was actually written
-        assert os.path.exists(path)
+        assert exists(path)
 
     def test_creates_git_local(self):
         self._touch_repo('.gitconfig', '.work.gitconfig')
@@ -216,7 +219,7 @@ class TestGenerateLocalFiles(unittest.TestCase):
         results = generate_local_files(self.repo, self.home, 'macos', dry_run=True)
 
         assert results[0][0] == 'would_create'
-        assert not os.path.exists(os.path.join(self.home, '.zprofile.local'))
+        assert not exists(join(self.home, '.zprofile.local'))
 
     def test_no_variants_no_local(self):
         self._touch_repo('.zprofile')
@@ -230,20 +233,20 @@ class TestGenerateLocalFiles(unittest.TestCase):
 class TestCheckLocalHealth(unittest.TestCase):
     def setUp(self):
         self.tmpdir = tempfile.mkdtemp()
-        self.repo = os.path.join(self.tmpdir, 'dotfiles')
-        self.home = os.path.join(self.tmpdir, 'home')
-        os.makedirs(self.repo)
-        os.makedirs(self.home)
+        self.repo = join(self.tmpdir, 'dotfiles')
+        self.home = join(self.tmpdir, 'home')
+        makedirs(self.repo)
+        makedirs(self.home)
 
     def tearDown(self):
         shutil.rmtree(self.tmpdir)
 
     def _touch_repo(self, *names):
         for name in names:
-            open(os.path.join(self.repo, name), 'w').close()
+            open(join(self.repo, name), 'w').close()
 
     def _write_home(self, name, content=''):
-        path = os.path.join(self.home, name)
+        path = join(self.home, name)
         with open(path, 'w') as f:
             f.write(content)
 
@@ -300,29 +303,29 @@ class TestGetLocalStatusWithOverlay(unittest.TestCase):
 
     def setUp(self):
         self.tmpdir = tempfile.mkdtemp()
-        self.repo = os.path.join(self.tmpdir, 'dotfiles')
-        self.home = os.path.join(self.tmpdir, 'home')
-        self.overlay = os.path.join(self.tmpdir, 'overlay')
-        os.makedirs(self.repo)
-        os.makedirs(self.home)
-        os.makedirs(self.overlay)
+        self.repo = join(self.tmpdir, 'dotfiles')
+        self.home = join(self.tmpdir, 'home')
+        self.overlay = join(self.tmpdir, 'overlay')
+        makedirs(self.repo)
+        makedirs(self.home)
+        makedirs(self.overlay)
 
     def tearDown(self):
         shutil.rmtree(self.tmpdir)
 
     def _touch(self, directory, *names):
         for name in names:
-            with open(os.path.join(directory, name), 'w') as f:
+            with open(join(directory, name), 'w') as f:
                 f.write(f'# {name}\n')
 
     def _overlay_registry(self, profile='work'):
         data = {'version': '3.0', 'profile': profile}
-        with open(os.path.join(self.overlay, '__registry__.yaml'), 'w') as f:
+        with open(join(self.overlay, '__registry__.yaml'), 'w') as f:
             yaml.safe_dump(data, f, sort_keys=False)
 
     def _write_local_for(self, base_dotfile, variants):
         """Write the home .local file matching the expected merged contents."""
-        local_path = os.path.join(self.home, f'{base_dotfile}.local')
+        local_path = join(self.home, f'{base_dotfile}.local')
         with open(local_path, 'w') as f:
             f.write(build_local_contents(base_dotfile, variants))
 
@@ -333,7 +336,7 @@ class TestGetLocalStatusWithOverlay(unittest.TestCase):
             include = format_local_include('git', f'{base_dotfile}.local')
         elif base_dotfile == '.tmux.conf':
             include = format_local_include('tmux', f'{base_dotfile}.local')
-        with open(os.path.join(self.home, base_dotfile), 'w') as f:
+        with open(join(self.home, base_dotfile), 'w') as f:
             f.write(include + '\n')
 
     def test_overlay_bare_file_treated_as_profile_variant(self):
@@ -436,21 +439,27 @@ NESTED_CASES = [
 ]
 
 
-@pytest.mark.parametrize('filename,expected', NESTED_CASES, ids=[c[0] or 'empty' for c in NESTED_CASES])
+@pytest.mark.parametrize(
+    'filename,expected', NESTED_CASES, ids=[c[0] or 'empty' for c in NESTED_CASES]
+)
 def test_parse_nested_variant(filename, expected):
     assert parse_nested_variant(filename) == expected
 
 
 def test_parse_nested_variant_custom_os_names():
-    assert parse_nested_variant(
-        'config.freebsd.fish', os_names=['freebsd', 'openbsd']
-    ) == ('config.fish', 'os', 'freebsd')
+    assert parse_nested_variant('config.freebsd.fish', os_names=['freebsd', 'openbsd']) == (
+        'config.fish',
+        'os',
+        'freebsd',
+    )
 
 
 def test_parse_nested_variant_custom_profiles():
-    assert parse_nested_variant(
-        'config.server.fish', profiles=['server', 'desktop']
-    ) == ('config.fish', 'profile', 'server')
+    assert parse_nested_variant('config.server.fish', profiles=['server', 'desktop']) == (
+        'config.fish',
+        'profile',
+        'server',
+    )
 
 
 # -- find_variant_files with nested variants (Unit 2) --
@@ -459,18 +468,18 @@ def test_parse_nested_variant_custom_profiles():
 class TestFindVariantFilesNested(unittest.TestCase):
     def setUp(self):
         self.tmpdir = tempfile.mkdtemp()
-        self.repo = os.path.join(self.tmpdir, 'dotfiles')
-        self.config = os.path.join(self.repo, '.config')
-        os.makedirs(self.config)
+        self.repo = join(self.tmpdir, 'dotfiles')
+        self.config = join(self.repo, '.config')
+        makedirs(self.config)
 
     def tearDown(self):
         shutil.rmtree(self.tmpdir)
 
     def _touch_tool(self, tool, *names):
-        tool_dir = os.path.join(self.config, tool)
-        os.makedirs(tool_dir, exist_ok=True)
+        tool_dir = join(self.config, tool)
+        makedirs(tool_dir, exist_ok=True)
         for name in names:
-            open(os.path.join(tool_dir, name), 'w').close()
+            open(join(tool_dir, name), 'w').close()
 
     def test_detects_nested_os_variant(self):
         self._touch_tool('fish', 'config.fish', 'config.macos.fish')
@@ -501,9 +510,9 @@ class TestFindVariantFilesNested(unittest.TestCase):
         assert '.config/ghostty/config.macos' in result['.config/ghostty/config']
 
     def test_does_not_recurse_into_subdirs(self):
-        os.makedirs(os.path.join(self.config, 'fish', 'conf.d'))
+        makedirs(join(self.config, 'fish', 'conf.d'))
         self._touch_tool('fish', 'config.fish')
-        with open(os.path.join(self.config, 'fish', 'conf.d', 'work.fish'), 'w') as f:
+        with open(join(self.config, 'fish', 'conf.d', 'work.fish'), 'w') as f:
             f.write('')
         result = find_variant_files(self.repo, 'macos', profile='work')
         assert all('conf.d' not in k for k in result.keys())
@@ -514,8 +523,8 @@ class TestFindVariantFilesNested(unittest.TestCase):
         assert '.config/fish/config.fish' not in result
 
     def test_root_and_nested_coexist(self):
-        open(os.path.join(self.repo, '.zprofile'), 'w').close()
-        open(os.path.join(self.repo, '.macos.zprofile'), 'w').close()
+        open(join(self.repo, '.zprofile'), 'w').close()
+        open(join(self.repo, '.macos.zprofile'), 'w').close()
         self._touch_tool('fish', 'config.fish', 'config.macos.fish')
 
         result = find_variant_files(self.repo, 'macos')
@@ -531,17 +540,17 @@ class TestFishLocalGeneration(unittest.TestCase):
 
     def setUp(self):
         self.tmpdir = tempfile.mkdtemp()
-        self.repo = os.path.join(self.tmpdir, 'dotfiles')
-        self.home = os.path.join(self.tmpdir, 'home')
-        os.makedirs(os.path.join(self.repo, '.config', 'fish'))
-        os.makedirs(self.home)
+        self.repo = join(self.tmpdir, 'dotfiles')
+        self.home = join(self.tmpdir, 'home')
+        makedirs(join(self.repo, '.config', 'fish'))
+        makedirs(self.home)
 
     def tearDown(self):
         shutil.rmtree(self.tmpdir)
 
     def _touch_fish(self, *names):
         for name in names:
-            with open(os.path.join(self.repo, '.config', 'fish', name), 'w') as f:
+            with open(join(self.repo, '.config', 'fish', name), 'w') as f:
                 f.write(f'# {name}\n')
 
     def test_generates_fish_local_next_to_base(self):
@@ -569,18 +578,18 @@ class TestFishLocalGeneration(unittest.TestCase):
 
     def test_fish_local_written_to_disk_through_symlink(self):
         # Simulate Phase 3.5 having already created the directory symlink.
-        os.makedirs(os.path.join(self.home, '.config'))
-        os.symlink(
-            os.path.join(self.repo, '.config', 'fish'),
-            os.path.join(self.home, '.config', 'fish'),
+        makedirs(join(self.home, '.config'))
+        symlink(
+            join(self.repo, '.config', 'fish'),
+            join(self.home, '.config', 'fish'),
         )
         self._touch_fish('config.fish', 'config.macos.fish')
         generate_local_files(self.repo, self.home, 'macos')
         # The .local ends up in the repo (via the symlink), per D5.
-        repo_local = os.path.join(self.repo, '.config', 'fish', 'config.fish.local')
-        assert os.path.exists(repo_local)
-        home_local = os.path.join(self.home, '.config', 'fish', 'config.fish.local')
-        assert os.path.exists(home_local)  # reachable through the symlink too
+        repo_local = join(self.repo, '.config', 'fish', 'config.fish.local')
+        assert exists(repo_local)
+        home_local = join(self.home, '.config', 'fish', 'config.fish.local')
+        assert exists(home_local)  # reachable through the symlink too
 
     def test_idempotent_fish_local(self):
         self._touch_fish('config.fish', 'config.macos.fish')
@@ -595,9 +604,7 @@ class TestFishLocalGeneration(unittest.TestCase):
         assert results[0][0] == 'would_create'
         # Home side: no parent dir created, nothing to check
         # Repo side: .local MUST NOT have been written
-        assert not os.path.exists(
-            os.path.join(self.repo, '.config', 'fish', 'config.fish.local')
-        )
+        assert not exists(join(self.repo, '.config', 'fish', 'config.fish.local'))
 
 
 # -- Unsupported inclusion (Unit 5) --
@@ -613,14 +620,14 @@ class TestUnsupportedInclusion(unittest.TestCase):
 
     def setUp(self):
         self.tmpdir = tempfile.mkdtemp()
-        self.repo = os.path.join(self.tmpdir, 'dotfiles')
-        self.home = os.path.join(self.tmpdir, 'home')
-        os.makedirs(os.path.join(self.repo, '.config', 'zed'))
-        os.makedirs(self.home)
+        self.repo = join(self.tmpdir, 'dotfiles')
+        self.home = join(self.tmpdir, 'home')
+        makedirs(join(self.repo, '.config', 'zed'))
+        makedirs(self.home)
         # settings.json has no include syntax — .json is not in LOCAL_TOOL_TYPES.
-        with open(os.path.join(self.repo, '.config', 'zed', 'settings.json'), 'w') as f:
+        with open(join(self.repo, '.config', 'zed', 'settings.json'), 'w') as f:
             f.write('{}')
-        with open(os.path.join(self.repo, '.config', 'zed', 'settings.macos.json'), 'w') as f:
+        with open(join(self.repo, '.config', 'zed', 'settings.macos.json'), 'w') as f:
             f.write('{"font_size": 14}')
 
     def tearDown(self):
@@ -647,12 +654,8 @@ class TestUnsupportedInclusion(unittest.TestCase):
         results = bootstrap(self.repo, self.home, 'macos', skip_unsupported=True)
         kinds = [r[0] for r in results]
         assert 'skipped_unsupported' in kinds
-        assert not os.path.exists(
-            os.path.join(self.repo, '.config', 'zed', 'settings.json.local')
-        )
-        assert not os.path.exists(
-            os.path.join(self.home, '.config', 'zed', 'settings.json.local')
-        )
+        assert not exists(join(self.repo, '.config', 'zed', 'settings.json.local'))
+        assert not exists(join(self.home, '.config', 'zed', 'settings.json.local'))
 
     def test_interactive_prompt_skip(self):
         from unittest.mock import patch
@@ -678,18 +681,18 @@ class TestUnsupportedInclusion(unittest.TestCase):
 
     def test_supported_bases_unaffected(self):
         # Same repo, but add a fish base + variant that IS supported.
-        os.makedirs(os.path.join(self.repo, '.config', 'fish'))
-        with open(os.path.join(self.repo, '.config', 'fish', 'config.fish'), 'w') as f:
+        makedirs(join(self.repo, '.config', 'fish'))
+        with open(join(self.repo, '.config', 'fish', 'config.fish'), 'w') as f:
             f.write('')
-        with open(os.path.join(self.repo, '.config', 'fish', 'config.macos.fish'), 'w') as f:
+        with open(join(self.repo, '.config', 'fish', 'config.macos.fish'), 'w') as f:
             f.write('')
         from dotgarden.symlinks import bootstrap
 
         # Even when fish is supported, the unsupported zed base blocks
         # bootstrap non-interactively. --skip-unsupported lets fish proceed.
-        results = bootstrap(self.repo, self.home, 'macos', skip_unsupported=True)
-        fish_local = os.path.join(self.repo, '.config', 'fish', 'config.fish.local')
-        assert os.path.exists(fish_local)
+        bootstrap(self.repo, self.home, 'macos', skip_unsupported=True)
+        fish_local = join(self.repo, '.config', 'fish', 'config.fish.local')
+        assert exists(fish_local)
         with open(fish_local) as f:
             assert 'config.macos.fish' in f.read()
 
@@ -702,10 +705,10 @@ class TestDiscoverOverlayManaged(unittest.TestCase):
 
     def setUp(self):
         self.tmpdir = tempfile.mkdtemp()
-        self.home = os.path.join(self.tmpdir, 'home')
-        self.overlay = os.path.join(self.tmpdir, 'overlay')
-        os.makedirs(self.home)
-        os.makedirs(self.overlay)
+        self.home = join(self.tmpdir, 'home')
+        self.overlay = join(self.tmpdir, 'overlay')
+        makedirs(self.home)
+        makedirs(self.overlay)
 
     def tearDown(self):
         shutil.rmtree(self.tmpdir)
@@ -714,13 +717,13 @@ class TestDiscoverOverlayManaged(unittest.TestCase):
         data = {'version': '3.0', 'profile': profile}
         if extra:
             data.update(extra)
-        with open(os.path.join(self.overlay, '__registry__.yaml'), 'w') as f:
+        with open(join(self.overlay, '__registry__.yaml'), 'w') as f:
             yaml.safe_dump(data, f, sort_keys=False)
 
     def _touch_overlay(self, *names):
         for name in names:
-            path = os.path.join(self.overlay, name)
-            os.makedirs(os.path.dirname(path) or self.overlay, exist_ok=True)
+            path = join(self.overlay, name)
+            makedirs(dirname(path) or self.overlay, exist_ok=True)
             with open(path, 'w') as f:
                 f.write(f'# {name}\n')
 
@@ -750,7 +753,7 @@ class TestDiscoverOverlayManaged(unittest.TestCase):
         devbox = [e for e in entries if e.get('category') == 'devbox']
         assert len(devbox) == 1
         assert devbox[0]['source_path'] == '~/.devbox/profile/init.sh'
-        assert devbox[0]['repo_path'] == os.path.join(self.overlay, '_devbox/init.sh')
+        assert devbox[0]['repo_path'] == join(self.overlay, '_devbox/init.sh')
         assert devbox[0]['profile'] == 'work'
 
     def test_missing_overlay_returns_empty(self):

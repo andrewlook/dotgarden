@@ -5,5 +5,37 @@ target-version = "py310"
 quote-style = "single"
 
 [lint]
+# E/F/W/I: pycodestyle, pyflakes, warnings, isort.
+# TID: flake8-tidy-imports — enables the banned-api rules below.
+select = ["E", "F", "W", "I", "TID"]
 ignore = ["E501"]
-select = ["E", "F", "W", "I"]
+
+[lint.per-file-ignores]
+# Banned-API rule (TID251) applies to tests only for now — that's the code
+# the user reads most often and where readability wins the most. Source
+# code has many legacy `os.path.*` call sites and a gradual cleanup is
+# preferable to a 600-line mechanical diff.
+"dotgarden/**.py" = ["TID251"]
+
+[lint.flake8-tidy-imports.banned-api]
+# Encourage `from os.path import join` style (see AGENTS.md "os / os.path
+# imports"). The banned-API check fires on fully-qualified calls like
+# `os.path.join(...)` with a pointer at the short form.
+"os.path.join".msg = "Use `from os.path import join` and call `join(...)` directly."
+"os.path.dirname".msg = "Use `from os.path import dirname`."
+"os.path.basename".msg = "Use `from os.path import basename`."
+"os.path.exists".msg = "Use `from os.path import exists`."
+"os.path.isfile".msg = "Use `from os.path import isfile`."
+"os.path.isdir".msg = "Use `from os.path import isdir`."
+"os.path.islink".msg = "Use `from os.path import islink`."
+"os.path.realpath".msg = "Use `from os.path import realpath`."
+"os.path.expanduser".msg = "Use `from os.path import expanduser`."
+"os.makedirs".msg = "Use `from os import makedirs`."
+"os.symlink".msg = "Use `from os import symlink`."
+"os.unlink".msg = "Use `from os import unlink`."
+"os.remove".msg = "Use `from os import remove`."
+"os.readlink".msg = "Use `from os import readlink`."
+
+# Non-test code can suppress the check with `# noqa: TID251` on specific
+# lines when the fully-qualified form genuinely reads better (e.g. one-off
+# in a module that otherwise doesn't touch os.path).

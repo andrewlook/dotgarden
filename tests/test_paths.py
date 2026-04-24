@@ -4,6 +4,8 @@ import os
 import shutil
 import tempfile
 import unittest
+from os import makedirs  # noqa: TID251
+from os.path import join  # noqa: TID251
 
 import pytest
 
@@ -19,14 +21,14 @@ from dotgarden.paths import (
 class TestValidate(unittest.TestCase):
     def setUp(self):
         self.tmpdir = tempfile.mkdtemp()
-        self.fake_repo = os.path.join(self.tmpdir, 'dotfiles')
-        os.makedirs(self.fake_repo)
+        self.fake_repo = join(self.tmpdir, 'dotfiles')
+        makedirs(self.fake_repo)
 
     def tearDown(self):
         shutil.rmtree(self.tmpdir)
 
     def test_returns_absolute_path(self):
-        f = os.path.join(self.tmpdir, 'testfile')
+        f = join(self.tmpdir, 'testfile')
         open(f, 'w').close()
         result = validate(f, self.fake_repo)
         self.assertTrue(os.path.isabs(result))
@@ -40,7 +42,7 @@ class TestValidate(unittest.TestCase):
         self.assertEqual(result, '/nonexistent/path')
 
     def test_rejects_path_inside_repo(self):
-        f = os.path.join(self.fake_repo, 'inside')
+        f = join(self.fake_repo, 'inside')
         open(f, 'w').close()
         with self.assertRaises(ValueError):
             validate(f, self.fake_repo)

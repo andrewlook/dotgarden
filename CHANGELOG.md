@@ -1,5 +1,42 @@
 # Changelog
 
+## v0.3.0 (2026-04-23)
+
+First release on PyPI. Install with `uv tool install dotgarden`, `pipx install dotgarden`, or `pip install dotgarden`.
+
+### `.config/*` auto-discovery
+- Top-level children of `<repo>/.config/` symlink 1:1 to `~/.config/<name>` without a registry entry
+- Nested variant files (`config.macos.fish`, `config.work.fish`) ride along via the `.local` hub
+- `__registry__.yaml` `ignore_dirs` opts specific subdirs out of auto-discovery
+
+### `dotfile register` upgrades
+- Convention-skip: when registering a `.config/*` path with no `--category` / `--os` / `--profile`, register uses the auto-discovery convention instead of adding a registry entry
+- Replace prompt: when the repo already has a file at the destination, register asks `[y/N/diff]` instead of erroring out (`--force` still works for non-interactive callers)
+- Overlay registration is profile-gated; cross-repo conflicts are detected before any file moves
+
+### Safer `.local` generation
+- Bootstrap fails loudly when a variant file's tool type has no known include syntax, instead of silently dropping it
+- `--skip-unsupported` opts out; interactive runs prompt `[y/N]`
+
+### Starter template extracted
+- `examples/starter/` is now a git submodule tracking [`andrewlook/dotgarden-template`](https://github.com/andrewlook/dotgarden-template)
+- CI initializes submodules on checkout so integration tests see the full starter fixture
+- Template demonstrates all three placement mechanisms: root dotfiles, `.config/*` convention, and registry (with a `_cursor/` entry for the non-XDG target)
+
+### Documentation
+- New [GUIDE.md](https://github.com/andrewlook/dotgarden/blob/main/GUIDE.md) walkthrough: template setup, register, specialize, overlay, and the starter's `bootstrap.sh`
+- README Quick Start rewritten with an ASCII tree of the template, a `__registry__.yaml` snippet for the Cursor entry, and a real `dotfile bootstrap` output example
+- Command table slimmed to `dotfile <cmd>` rows with per-command explainer sections for `bootstrap`, `register`, and `specialize`
+- README's internal doc links use absolute GitHub URLs so they render correctly on the PyPI project page
+- Added `dotfile status` demo screenshot to the README intro
+
+### Bug fixes
+- Registry ID derivation strips the leading dot from each path segment (fixes IDs for nested paths like `.config/fish/config.fish`)
+
+### Packaging
+- Tag-push release flow wired up: pushing `v*` runs `.github/workflows/publish.yml`, which builds `sdist` + `wheel` and uploads via PyPI OIDC trusted publishing — no API tokens in CI
+- Strict hatchling sdist allowlist — only package-relevant files (`dotgarden/`, `tests/`, `README.md`, `LICENSE`, `CHANGELOG.md`, `pyproject.toml`) ship to PyPI
+
 ## v0.2.0 (2026-04-15)
 
 ### Registry v3 compact format
