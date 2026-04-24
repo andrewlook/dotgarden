@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+# dev/publish-placeholders — one-time (per variant) publish of the
+# typosquat placeholder packages to real PyPI.
+#
+# Reads credentials from the [pypi] section of ~/.pypirc via twine.
+# Safe to re-run; PyPI rejects duplicate uploads of an existing
+# name==version so only newly-added or bumped placeholders upload.
+#
+# Usage: dev/publish-placeholders
+#        dev/publish-placeholders dot-garden          # single variant
+#        TEST=1 dev/publish-placeholders              # → test.pypi.org
+
+set -euo pipefail
+
+cd "$(dirname "$0")/placeholder-packages"
+
+if [[ $# -gt 0 ]]; then
+    VARIANTS=("$@")
+else
+    VARIANTS=(dot-garden dotgardens dotgardn)
+fi
+
+REPO_FLAG=()
+if [[ "${TEST:-0}" == "1" ]]; then
+    REPO_FLAG=(--repository testpypi)
+    echo "==> TEST mode: uploading to test.pypi.org"
+fi
+
+for pkg in "${VARIANTS[@]}"; do
+    if [[ ! -d "$pkg" ]]; then
+        echo "!! skipping $pkg (directory not found)"
+        continue
+    fi
+    echo
+    echo "==> $pkg"
+    (
+        cd "$pkg"
+        rm -rf dist
+        uv build
+        uvx twine upload ${REPO_FLAG[@]+"${REPO_FLAG[@]}"} --non-interactive dist/*
+    )
+done
+
+echo
+echo "==> Done. Verify at https://pypi.org/user/andrewlook/ (or test.pypi.org)."
