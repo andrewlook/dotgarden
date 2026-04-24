@@ -64,36 +64,54 @@ def get_overlay_profile(registry_data, registry_path):
     return profile
 
 
+# Extensions stripped from the tail of a derived ID. Common config formats
+# whose name-minus-extension reads cleanly as a short identifier.
+_ID_STRIP_EXTENSIONS = ('.json', '.yaml', '.yml', '.toml', '.kdl', '.fish',
+                        '.conf', '.lua', '.sh')
+
+
+def _strip_segment(segment):
+    """Strip leading _ and . so each path segment contributes a clean token.
+
+    The leading-dot strip is what keeps IDs readable — '.bashrc' becomes
+    'bashrc', not '.bashrc', after segment-level normalization. Earlier
+    versions did this only once at the start of the whole path, which
+    broke IDs like `_uncategorized/.bashrc` (produced
+    'uncategorized-.bashrc' instead of 'uncategorized-bashrc').
+    """
+    return segment.lstrip('_').lstrip('.')
+
+
+def _strip_known_extension(name):
+    for ext in _ID_STRIP_EXTENSIONS:
+        if name.endswith(ext):
+            return name[: -len(ext)]
+    return name
+
+
 def derive_id(repo_path):
     """Derive a stable ID from a repo path.
 
     Examples:
-        _cursor/settings.json -> cursor-settings
-        _fish/config.fish     -> fish-config
-        __macos__/sketchybar  -> sketchybar
-        _nvim                 -> nvim
+        _cursor/settings.json        -> cursor-settings
+        _fish/config.fish            -> fish-config
+        __macos__/sketchybar         -> sketchybar
+        _nvim                        -> nvim
+        _uncategorized/.bashrc       -> uncategorized-bashrc
+        __macos__/.macos-thing       -> macos-thing
     """
-    name = repo_path
-    name = re.sub(r'^__[a-z]+__/', '', name)
-    name = name.lstrip('_').lstrip('.')
-    name = name.replace('/', '-')
-    for ext in ['.json', '.yaml', '.yml', '.toml', '.kdl', '.fish', '.conf', '.lua', '.sh']:
-        if name.endswith(ext):
-            name = name[: -len(ext)]
-            break
-    return name
+    name = re.sub(r'^__[a-z]+__/', '', repo_path)
+    segments = [_strip_segment(s) for s in name.split('/')]
+    name = '-'.join(s for s in segments if s)
+    return _strip_known_extension(name)
 
 
 def derive_id_from_source(source_path):
     """Derive an ID from source path, for disambiguation when repo_path collides."""
     name = source_path.replace('~/', '')
-    name = name.lstrip('.')
-    name = name.replace('/', '-')
-    for ext in ['.json', '.yaml', '.yml', '.toml', '.kdl', '.fish', '.conf', '.lua', '.sh']:
-        if name.endswith(ext):
-            name = name[: -len(ext)]
-            break
-    return name
+    segments = [_strip_segment(s) for s in name.split('/')]
+    name = '-'.join(s for s in segments if s)
+    return _strip_known_extension(name)
 
 
 def load(registry_path):

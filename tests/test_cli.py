@@ -672,7 +672,7 @@ class TestCmdUnregister(CLITestCase):
 
         cmd_unregister(
             Namespace(
-                id_or_path='uncategorized-.bashrc',
+                id_or_path='uncategorized-bashrc',
                 restore=True,
                 keep_symlink=False,
                 keep_file=False,
@@ -693,7 +693,7 @@ class TestCmdUnregister(CLITestCase):
 
         cmd_unregister(
             Namespace(
-                id_or_path='uncategorized-.zshrc',
+                id_or_path='uncategorized-zshrc',
                 restore=False,
                 keep_symlink=False,
                 keep_file=False,
@@ -711,7 +711,7 @@ class TestCmdUnregister(CLITestCase):
 
         cmd_unregister(
             Namespace(
-                id_or_path='uncategorized-.vimrc',
+                id_or_path='uncategorized-vimrc',
                 restore=True,
                 keep_symlink=False,
                 keep_file=False,
@@ -826,7 +826,7 @@ class TestUnregisterSharedRepoPath(CLITestCase):
 class TestCmdIds(CLITestCase):
     def test_ids_prints_registered_ids(self):
         # Helper forces 'uncategorized' category for these root-dotfile paths,
-        # so the derived IDs look like 'uncategorized-.bashrc'.
+        # so the derived IDs look like 'uncategorized-bashrc'.
         src1 = self.create_source_file('.bashrc')
         src2 = self.create_source_file('.zshrc')
         self.register(src1)
@@ -840,8 +840,8 @@ class TestCmdIds(CLITestCase):
             cmd_ids(Namespace())
 
         ids = buf.getvalue().strip().split('\n')
-        assert 'uncategorized-.bashrc' in ids
-        assert 'uncategorized-.zshrc' in ids
+        assert 'uncategorized-bashrc' in ids
+        assert 'uncategorized-zshrc' in ids
         assert len(ids) == 2
 
     def test_ids_empty_registry(self):
