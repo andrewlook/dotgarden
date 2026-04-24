@@ -21,7 +21,8 @@ line is already present. Running again is a no-op on existing files.
 import os
 import sys
 
-from dotgarden import config, registry as reg
+from dotgarden import config
+from dotgarden import registry as reg
 from dotgarden.cli.utils.logging import LOG
 
 

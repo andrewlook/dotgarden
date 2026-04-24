@@ -9,7 +9,6 @@ import yaml
 from dotgarden import registry as reg
 from dotgarden.config import (
     DOT_CONFIG_DIR,
-    LOCAL_TOOL_TYPES,
     NOT_DOTFILES,
     NOT_DOTFILES_EXTENSIONS,
     REGISTRY_FILENAME,
@@ -907,7 +906,8 @@ def bootstrap(
     'would_update', 'would_repair', 'missing', or 'error'.
     target_path is None for .local file entries (phase='local').
     """
-    assert os_type, 'os_type is required'
+    if not os_type:
+        raise ValueError('os_type is required')
     results = []
     exclude_files = _compose_exclude_files(dotfiles_dir, overlay_dir)
 

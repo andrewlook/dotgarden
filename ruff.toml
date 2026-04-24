@@ -7,7 +7,8 @@ quote-style = "single"
 [lint]
 # E/F/W/I: pycodestyle, pyflakes, warnings, isort.
 # TID: flake8-tidy-imports — enables the banned-api rules below.
-select = ["E", "F", "W", "I", "TID"]
+# S: flake8-bandit security rules.
+select = ["E", "F", "W", "I", "TID", "S"]
 ignore = ["E501"]
 
 [lint.per-file-ignores]
@@ -16,6 +17,9 @@ ignore = ["E501"]
 # code has many legacy `os.path.*` call sites and a gradual cleanup is
 # preferable to a 600-line mechanical diff.
 "dotgarden/**.py" = ["TID251"]
+# pytest tests use `assert` for assertions — that's the whole point. S101
+# would flag every test line if not excluded here.
+"tests/**.py" = ["S101"]
 
 [lint.flake8-tidy-imports.banned-api]
 # Encourage `from os.path import join` style (see AGENTS.md "os / os.path
