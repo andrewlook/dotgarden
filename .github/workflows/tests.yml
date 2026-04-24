@@ -9,20 +9,20 @@ jobs:
       matrix:
         python-version: ["3.10", "3.12"]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           # Fetch the examples/starter/ submodule → andrewlook/dotgarden-template
           # (public). Tests that touch the starter then see its real content
           # instead of an empty placeholder.
           submodules: true
-      - uses: astral-sh/setup-uv@v4
+      - uses: astral-sh/setup-uv@v8
       - run: uv run --python ${{ matrix.python-version }} --with pytest --with pyyaml python -m pytest tests/ -v
 
   integration:
     name: Integration tests (Docker)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           submodules: true
       - name: Build test image
