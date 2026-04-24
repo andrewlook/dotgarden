@@ -1,10 +1,14 @@
 name: Tests
 on: [push, pull_request]
 
+permissions: {}
+
 jobs:
   unit:
     name: Unit tests (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     strategy:
       matrix:
         python-version: ["3.10", "3.12"]
@@ -15,16 +19,20 @@ jobs:
           # (public). Tests that touch the starter then see its real content
           # instead of an empty placeholder.
           submodules: true
+          persist-credentials: false
       - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b  # v8.1.0
       - run: uv run --python ${{ matrix.python-version }} --with pytest --with pyyaml python -m pytest tests/ -v
 
   integration:
     name: Integration tests (Docker)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           submodules: true
+          persist-credentials: false
       - name: Build test image
         run: docker build -f Dockerfile.test -t dotgarden-test .
       - name: Run integration harness

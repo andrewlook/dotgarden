@@ -37,6 +37,14 @@ First release on PyPI. Install with `uv tool install dotgarden`, `pipx install d
 - Tag-push release flow wired up: pushing `v*` runs `.github/workflows/publish.yml`, which builds `sdist` + `wheel` and uploads via PyPI OIDC trusted publishing — no API tokens in CI
 - Strict hatchling sdist allowlist — only package-relevant files (`dotgarden/`, `tests/`, `README.md`, `LICENSE`, `CHANGELOG.md`, `pyproject.toml`) ship to PyPI
 
+### Security
+- Every PyPI release ships [PEP 740](https://peps.python.org/pep-0740/) artifact attestations — see README's "Verifying release attestations" for the verification command
+- CVE scanning: `pip-audit` runs on every PR and weekly on `main`
+- Ruff `flake8-bandit` (`S`) rules added to lint
+- Third-party GitHub Actions pinned to immutable commit SHAs with version comments; Dependabot keeps them current with a 7-day cooldown
+- `zizmor` static-analyzes workflows on every PR; clean baseline at release time
+- Disclosure policy: see [SECURITY.md](https://github.com/andrewlook/dotgarden/blob/main/SECURITY.md)
+
 ## v0.2.0 (2026-04-15)
 
 ### Registry v3 compact format

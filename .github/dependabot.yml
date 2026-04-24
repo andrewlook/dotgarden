@@ -7,6 +7,12 @@ updates:
       interval: "weekly"
       day: "monday"
     open-pull-requests-limit: 5
+    # Cooldown buys 7 days for the ecosystem to flag a malicious release
+    # before dependabot proposes a bump. Sources: zizmor's
+    # dependabot-cooldown audit, plus several public PyPI yank-after-
+    # discovery incidents in 2025.
+    cooldown:
+      default-days: 7
     commit-message:
       prefix: "deps"
       prefix-development: "deps-dev"
@@ -22,6 +28,8 @@ updates:
       interval: "weekly"
       day: "monday"
     open-pull-requests-limit: 5
+    cooldown:
+      default-days: 7
     commit-message:
       prefix: "ci"
     labels:

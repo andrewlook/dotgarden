@@ -8,15 +8,18 @@ on:
     # Mondays at 12:00 UTC — catch new CVEs even on quiet weeks.
     - cron: '0 12 * * 1'
 
-permissions:
-  contents: read
+permissions: {}
 
 jobs:
   audit:
     name: pip-audit (CVE scan)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          persist-credentials: false
       - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b  # v8.1.0
       # Export the locked dep tree (runtime + extras) into a requirements
       # file so pip-audit can scan exact pinned versions without invoking
@@ -27,3 +30,22 @@ jobs:
         run: uv export --all-extras --format requirements-txt --no-emit-project --output-file requirements-audit.txt
       - name: Audit dependencies
         run: uvx pip-audit --strict --disable-pip -r requirements-audit.txt
+
+  zizmor:
+    name: zizmor (workflow audit)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # zizmor uses GH_TOKEN to enrich findings with action metadata.
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b  # v8.1.0
+      # Default severity threshold (info+). Baseline is clean today; if a
+      # genuine false positive shows up later, suppress it inline rather
+      # than raising --min-severity, so new findings don't slip past.
+      - name: Run zizmor
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: uvx zizmor .

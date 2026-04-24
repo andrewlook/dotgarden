@@ -5,17 +5,30 @@ on:
     tags:
       - 'v*'
 
-permissions:
-  id-token: write  # trusted publishing
+# Default to no permissions; the publish job opts back in for what it
+# actually needs. id-token is required for PyPI Trusted Publishing
+# (OIDC) and PEP 740 attestation generation.
+permissions: {}
 
 jobs:
   publish:
     runs-on: ubuntu-latest
     environment: pypi
+    permissions:
+      id-token: write       # trusted publishing + attestations
+      contents: read        # actions/checkout
+      attestations: write   # PEP 740 attestation generation
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          # No git push back; never persist the GITHUB_TOKEN to disk.
+          persist-credentials: false
 
+      # Disable setup-uv's cache on the publish path: a poisoned cache
+      # could inject malicious content into the artifact going to PyPI.
       - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b  # v8.1.0
+        with:
+          enable-cache: false
 
       - run: uv build
 
