@@ -60,6 +60,26 @@ class CLITestCase(unittest.TestCase):
     def register(
         self, path, category=None, os_flag=None, profile=None, name=None, dry_run=False, force=False
     ):
+        # Since the convention-skip change, `register` with no --category/
+        # --os/--profile/--name on a convention path skips the registry
+        # entirely. Tests written before that feature expect every register
+        # call through this helper to produce a registry entry. Preserve
+        # that expectation by defaulting `category` to the auto-detected
+        # value or 'uncategorized' — BUT only when all the other registry
+        # triggers are absent. If the caller sets os_flag/profile/name, they
+        # already opted into registry mode via those signals and we don't
+        # want to override the repo_dir choice (os_flag routes into __os__/,
+        # not _<category>/).
+        if (
+            category is None
+            and name is None
+            and os_flag is None
+            and profile is None
+        ):
+            from dotgarden import paths as _paths
+
+            auto = _paths.auto_detect_category(path, self.fake_home)
+            category = auto or 'uncategorized'
         args = Namespace(
             path=path,
             category=category,
@@ -79,8 +99,12 @@ class CLITestCase(unittest.TestCase):
 # -- Table-driven: register placement --
 
 REGISTER_PLACEMENT_CASES = [
-    # (rel_path,                                                  kwargs,                                      expected_repo_path,        expected_category)
-    ('.bashrc', {}, '.bashrc', 'uncategorized'),
+    # (rel_path, kwargs, expected_repo_path, expected_category)
+    #
+    # `.bashrc` with no kwargs goes through the test helper which forces
+    # category='uncategorized' (see CLITestCase.register docstring) — so
+    # the resulting repo path is under _uncategorized/.
+    ('.bashrc', {}, '_uncategorized/.bashrc', 'uncategorized'),
     (
         'Library/Application Support/Cursor/User/keybindings.json',
         {'category': 'cursor'},
@@ -93,6 +117,8 @@ REGISTER_PLACEMENT_CASES = [
         '_cursor/settings.json',
         'cursor',
     ),
+    # Registry save roundtrips entries with no explicit category under
+    # the 'uncategorized' key, so that's what comes back on load.
     ('.macos-thing', {'os_flag': 'macos'}, '__macos__/.macos-thing', 'uncategorized'),
 ]
 
@@ -183,11 +209,15 @@ class TestRegisterEdgeCases(CLITestCase):
         assert entry['repo_path'] == 'bash-config'
 
     def test_symlink_points_to_repo(self):
+        # Helper routes .zshrc through registry mode with the
+        # 'uncategorized' category (see CLITestCase.register), so the repo
+        # path is _uncategorized/.zshrc. The link content round-trips the
+        # user's original bytes regardless of where they land in the repo.
         src = self.create_source_file('.zshrc', content='# zsh')
         self.register(src)
 
         target = os.readlink(src)
-        assert target == os.path.join(self.fake_repo, '.zshrc')
+        assert target == os.path.join(self.fake_repo, '_uncategorized', '.zshrc')
         with open(src) as f:
             assert f.read() == '# zsh'
 
@@ -412,13 +442,14 @@ class TestRegisterWizard(CLITestCase):
         No patches: the harness's stdin is already not a tty, and --yes is
         False. The wizard short-circuits; cmd_register falls through to the
         existing y/N confirmation prompt which the test patches separately.
+
+        Uses a `Library/…`-style path so register lands in registry mode
+        (non-convention target) and we can read the resulting entry to
+        confirm no wizard-populated fields leaked in.
         """
         from unittest.mock import patch as mock_patch
 
-        src = self.create_source_file('.config/app/x')
-        # Only the final "Proceed?" prompt should fire — that's already gated
-        # behind the tty check at the preview step, so patching input to
-        # return 'y' is enough.
+        src = self.create_source_file('Library/app/x')
         with mock_patch('builtins.input', return_value='y'):
             cmd_register(self._args(src))
 
@@ -627,17 +658,21 @@ class TestOverlayResolutionPrecedence(CLITestCase):
 
 
 class TestCmdUnregister(CLITestCase):
+    # Since convention-eligible paths now skip the registry, the tests here
+    # use the CLITestCase.register helper which forces category to auto-detect
+    # or 'uncategorized'. Files land under _<category>/, and unregister is
+    # invoked with the matching ID (e.g. `uncategorized-bashrc`).
     def test_unregister_restores_by_default(self):
         src = self.create_source_file('.bashrc', content='# my config')
         self.register(src)
 
-        # Source is now a symlink, file is in repo
+        repo_path = os.path.join(self.fake_repo, '_uncategorized', '.bashrc')
         assert os.path.islink(src)
-        assert os.path.isfile(os.path.join(self.fake_repo, '.bashrc'))
+        assert os.path.isfile(repo_path)
 
         cmd_unregister(
             Namespace(
-                id_or_path='bashrc',
+                id_or_path='uncategorized-.bashrc',
                 restore=True,
                 keep_symlink=False,
                 keep_file=False,
@@ -645,15 +680,12 @@ class TestCmdUnregister(CLITestCase):
             )
         )
 
-        # Registry is empty
         assert len(self.load_registry()['registered_files']) == 0
-        # File is restored (not a symlink)
         assert not os.path.islink(src)
         assert os.path.isfile(src)
         with open(src) as f:
             assert f.read() == '# my config'
-        # Repo copy is removed
-        assert not os.path.exists(os.path.join(self.fake_repo, '.bashrc'))
+        assert not os.path.exists(repo_path)
 
     def test_unregister_no_restore(self):
         src = self.create_source_file('.zshrc')
@@ -661,7 +693,7 @@ class TestCmdUnregister(CLITestCase):
 
         cmd_unregister(
             Namespace(
-                id_or_path='zshrc',
+                id_or_path='uncategorized-.zshrc',
                 restore=False,
                 keep_symlink=False,
                 keep_file=False,
@@ -671,7 +703,7 @@ class TestCmdUnregister(CLITestCase):
 
         assert len(self.load_registry()['registered_files']) == 0
         assert not os.path.islink(src)
-        assert not os.path.exists(os.path.join(self.fake_repo, '.zshrc'))
+        assert not os.path.exists(os.path.join(self.fake_repo, '_uncategorized', '.zshrc'))
 
     def test_unregister_dry_run(self):
         src = self.create_source_file('.vimrc')
@@ -679,7 +711,11 @@ class TestCmdUnregister(CLITestCase):
 
         cmd_unregister(
             Namespace(
-                id_or_path='vimrc', restore=True, keep_symlink=False, keep_file=False, dry_run=True
+                id_or_path='uncategorized-.vimrc',
+                restore=True,
+                keep_symlink=False,
+                keep_file=False,
+                dry_run=True,
             )
         )
 
@@ -789,6 +825,8 @@ class TestUnregisterSharedRepoPath(CLITestCase):
 
 class TestCmdIds(CLITestCase):
     def test_ids_prints_registered_ids(self):
+        # Helper forces 'uncategorized' category for these root-dotfile paths,
+        # so the derived IDs look like 'uncategorized-.bashrc'.
         src1 = self.create_source_file('.bashrc')
         src2 = self.create_source_file('.zshrc')
         self.register(src1)
@@ -802,8 +840,8 @@ class TestCmdIds(CLITestCase):
             cmd_ids(Namespace())
 
         ids = buf.getvalue().strip().split('\n')
-        assert 'bashrc' in ids
-        assert 'zshrc' in ids
+        assert 'uncategorized-.bashrc' in ids
+        assert 'uncategorized-.zshrc' in ids
         assert len(ids) == 2
 
     def test_ids_empty_registry(self):
@@ -926,6 +964,308 @@ class TestColorizeTarget(unittest.TestCase):
             '~/tools/dotfiles-work/.gitconfig', '~/dotfiles', '~/tools/dotfiles-work', None
         )
         assert result == '~/tools/dotfiles-work/.gitconfig'
+
+
+# -- register: overlay auto-targeting gated on explicit profile (3-issue fix) --
+
+
+class TestRegisterOverlayProfileGating(CLITestCase):
+    """register no longer auto-targets an overlay from .dotfiles_env just
+    because bootstrap happened to activate one. It only routes to the
+    overlay when `--overlay` is explicit, or `--profile` matches.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.overlay_dir = os.path.join(self.tmpdir, 'overlay')
+        os.makedirs(self.overlay_dir)
+        import yaml
+
+        with open(os.path.join(self.overlay_dir, '__registry__.yaml'), 'w') as f:
+            yaml.safe_dump({'version': '3.0', 'profile': 'work'}, f)
+        # Simulate a prior `dotfile bootstrap --overlay <overlay>` having
+        # written .dotfiles_env in the fake home.
+        with open(os.path.join(self.fake_home, '.dotfiles_env'), 'w') as f:
+            f.write(f'export DOTFILES_OS=macos\n')
+            f.write(f'export DOTFILES_OVERLAY="{self.overlay_dir}"\n')
+
+    def _args(self, path, profile=None, overlay=None):
+        return Namespace(
+            path=path, category=None, os=None, profile=profile, name=None,
+            dry_run=False, force=False, overlay=overlay, yes=True,
+        )
+
+    def _overlay_registry(self):
+        return reg.load(os.path.join(self.overlay_dir, '__registry__.yaml'))
+
+    def test_no_flags_targets_main_even_with_overlay_in_env(self):
+        # The .dotfiles_env overlay is "sticky" from bootstrap, but register
+        # without --overlay/--profile should go to main. `.zshrc` is a
+        # root-dotfile convention → no registry entry in either repo;
+        # verify via the file landing location instead.
+        src = self.create_source_file('.zshrc')
+        cmd_register(self._args(src))
+
+        # File moved into main repo, not overlay.
+        assert os.path.isfile(os.path.join(self.fake_repo, '.zshrc'))
+        assert not os.path.exists(os.path.join(self.overlay_dir, '.zshrc'))
+        # Source is now a symlink into main.
+        assert os.path.islink(src)
+        assert os.path.realpath(src) == os.path.realpath(
+            os.path.join(self.fake_repo, '.zshrc')
+        )
+
+    def test_matching_profile_activates_env_overlay(self):
+        # --profile work + env overlay with profile:work → register to overlay.
+        # Overlay always uses the registry (convention-skip is main-repo only).
+        src = self.create_source_file('.work-thing')
+        cmd_register(self._args(src, profile='work'))
+
+        main_reg = self.load_registry()
+        assert len(main_reg['registered_files']) == 0
+        overlay_reg = self._overlay_registry()
+        assert len(overlay_reg['registered_files']) == 1
+        assert overlay_reg['registered_files'][0]['profile'] == 'work'
+
+    def test_nonmatching_profile_falls_back_to_main(self):
+        # --profile home + env overlay with profile:work → register to main
+        # (NOT an error; the user just isn't using the overlay for this call).
+        # Because --profile is set, register uses registry mode and routes
+        # to __home__/ in the main repo.
+        src = self.create_source_file('.home-thing')
+        cmd_register(self._args(src, profile='home'))
+
+        # File landed in main under the profile dir; overlay registry empty.
+        assert os.path.isfile(os.path.join(self.fake_repo, '__home__', '.home-thing'))
+        overlay_reg = self._overlay_registry()
+        assert len(overlay_reg.get('registered_files', [])) == 0
+        # Main has one registry entry, profile=home.
+        main_reg = self.load_registry()
+        assert len(main_reg['registered_files']) == 1
+        assert main_reg['registered_files'][0]['profile'] == 'home'
+
+    def test_explicit_overlay_flag_always_honored(self):
+        # --overlay is explicit user intent and wins even if --profile is absent.
+        # Overlay always uses registry, so the entry ends up there.
+        src = self.create_source_file('.explicit-overlay')
+        cmd_register(self._args(src, overlay=self.overlay_dir))
+
+        overlay_reg = self._overlay_registry()
+        assert len(overlay_reg['registered_files']) == 1
+
+
+# -- register: cross-registry conflict check --
+
+
+class TestRegisterCrossRegistryConflict(CLITestCase):
+    """When targeting the overlay, detect that the file is already
+    registered in the main repo."""
+
+    def setUp(self):
+        super().setUp()
+        self.overlay_dir = os.path.join(self.tmpdir, 'overlay')
+        os.makedirs(self.overlay_dir)
+        import yaml
+
+        with open(os.path.join(self.overlay_dir, '__registry__.yaml'), 'w') as f:
+            yaml.safe_dump({'version': '3.0', 'profile': 'work'}, f)
+
+    def test_source_already_symlinked_blocks_re_register(self):
+        # Register `.zshrc` to main (convention path — skips registry, just
+        # symlinks). Re-registering via the overlay would double-manage.
+        # The symlink-into-main check catches it.
+        src = self.create_source_file('.zshrc', content='# main')
+        self.register(src)
+        # Source is now a symlink into main.
+        assert os.path.islink(src)
+        # Try to re-register via the overlay → blocked.
+        args = Namespace(
+            path=src, category=None, os=None, profile=None, name=None,
+            dry_run=False, force=False, overlay=self.overlay_dir, yes=True,
+        )
+        with pytest.raises(SystemExit):
+            cmd_register(args)
+
+    def test_registered_in_main_blocks_overlay_register(self):
+        # Registry-based registration (Library/… path, needs registry).
+        # Attempting to also register in overlay should hit the cross-registry
+        # conflict check.
+        rel = 'Library/Application Support/Cursor/User/settings.json'
+        src = self.create_source_file(rel, content='{}')
+        self.register(src, category='cursor')
+        # Now source is a symlink into main; try overlay register.
+        args = Namespace(
+            path=src, category='cursor', os=None, profile=None, name=None,
+            dry_run=False, force=False, overlay=self.overlay_dir, yes=True,
+        )
+        with pytest.raises(SystemExit):
+            cmd_register(args)
+
+
+# -- register: placeholder-replace prompt --
+
+
+class TestRegisterConventionSkipsRegistry(CLITestCase):
+    """register skips the registry when the source naturally maps to a
+    convention-discovered location (.config/* or root dotfile)."""
+
+    def _raw_args(self, src, **overrides):
+        # Build args WITHOUT going through CLITestCase.register (which
+        # explicitly sets category to preserve legacy test behavior).
+        # These tests want the real defaults.
+        defaults = dict(
+            path=src, category=None, os=None, profile=None, name=None,
+            dry_run=False, force=False, overlay=None, yes=True,
+        )
+        defaults.update(overrides)
+        return Namespace(**defaults)
+
+    def test_root_dotfile_skips_registry(self):
+        # ~/.zshrc → .zshrc in repo, no registry entry.
+        src = self.create_source_file('.zshrc', content='# real shell')
+        cmd_register(self._raw_args(src))
+
+        assert len(self.load_registry()['registered_files']) == 0
+        # File landed in repo; source is now a symlink.
+        assert os.path.islink(src)
+        assert os.path.isfile(os.path.join(self.fake_repo, '.zshrc'))
+
+    def test_config_path_skips_registry(self):
+        # ~/.config/ghostty/config → .config/ghostty/config, no registry.
+        src = self.create_source_file('.config/ghostty/config', content='theme = catppuccin')
+        cmd_register(self._raw_args(src))
+
+        assert len(self.load_registry()['registered_files']) == 0
+        assert os.path.islink(src)
+        repo_dest = os.path.join(self.fake_repo, '.config/ghostty/config')
+        assert os.path.isfile(repo_dest)
+
+    def test_config_directory_skips_registry(self):
+        # Whole .config/<tool>/ dir → directory symlink, no registry.
+        src_dir = os.path.join(self.fake_home, '.config', 'ghostty')
+        os.makedirs(src_dir)
+        with open(os.path.join(src_dir, 'config'), 'w') as f:
+            f.write('theme = catppuccin')
+        cmd_register(self._raw_args(src_dir))
+
+        assert len(self.load_registry()['registered_files']) == 0
+        assert os.path.islink(src_dir)
+        repo_dest = os.path.join(self.fake_repo, '.config/ghostty')
+        assert os.path.isdir(repo_dest)
+
+    def test_non_xdg_path_still_uses_registry(self):
+        # ~/Library/Application Support/... isn't convention-discoverable →
+        # must use the registry with the auto-detected category.
+        rel = 'Library/Application Support/Cursor/User/settings.json'
+        src = self.create_source_file(rel, content='{}')
+        cmd_register(self._raw_args(src))
+
+        reg_data = self.load_registry()
+        assert len(reg_data['registered_files']) == 1
+        assert reg_data['registered_files'][0]['category'] == 'cursor'
+
+    def test_explicit_category_forces_registry(self):
+        # User wants registry mode for a normally-convention path → opt in
+        # via --category. The entry lands in the registry under the given
+        # category, not the bare convention path.
+        src = self.create_source_file('.zshrc', content='# shell')
+        cmd_register(self._raw_args(src, category='shell'))
+
+        reg_data = self.load_registry()
+        assert len(reg_data['registered_files']) == 1
+        entry = reg_data['registered_files'][0]
+        assert entry['category'] == 'shell'
+        assert entry['repo_path'] == '_shell/.zshrc'
+
+    def test_explicit_name_forces_registry(self):
+        # --name implies user wants a specific repo_path → registry mode.
+        src = self.create_source_file('.bashrc', content='# bash')
+        cmd_register(self._raw_args(src, name='my-bash-config'))
+
+        reg_data = self.load_registry()
+        assert len(reg_data['registered_files']) == 1
+        assert reg_data['registered_files'][0]['repo_path'] == 'my-bash-config'
+
+
+class TestRegisterReplacePlaceholder(CLITestCase):
+    """When the repo already has a regular file at the destination (e.g.
+    a starter-template placeholder) and --force isn't set, register prompts
+    the user to replace it with the home version."""
+
+    def _args(self, src):
+        return Namespace(
+            path=src, category='uncategorized', os=None, profile=None,
+            name=None, dry_run=False, force=False, overlay=None, yes=False,
+        )
+
+    def _args_with_fields(self, src):
+        # Pre-fill every wizard field so the register wizard doesn't fire
+        # and consume our mocked inputs. The placeholder-replace prompt
+        # is the only input() we want to exercise here.
+        # os='' / profile='' hits the wizard's `is None` check as False
+        # (explicit-empty instead of omitted), skipping those prompts.
+        return Namespace(
+            path=src, category='uncategorized', os='', profile='',
+            name=None, dry_run=False, force=False, overlay=None, yes=False,
+        )
+
+    def test_interactive_yes_replaces_placeholder(self):
+        # Placeholder lives in the repo at the same path register will
+        # compute (category='uncategorized' → '_uncategorized/.zshrc').
+        repo_dir = os.path.join(self.fake_repo, '_uncategorized')
+        os.makedirs(repo_dir)
+        repo_placeholder = os.path.join(repo_dir, '.zshrc')
+        with open(repo_placeholder, 'w') as f:
+            f.write('# placeholder — replace me\n')
+
+        src = self.create_source_file('.zshrc', content='# real content\n')
+
+        # First prompt: replace-placeholder → 'y'; second: final "Proceed?" → 'y'.
+        from unittest.mock import patch as mock_patch
+
+        with mock_patch('sys.stdin.isatty', return_value=True), mock_patch(
+            'builtins.input', side_effect=['y', 'y']
+        ):
+            cmd_register(self._args_with_fields(src))
+
+        assert os.path.islink(src)
+        with open(src) as f:
+            assert 'real content' in f.read()
+        with open(repo_placeholder) as f:
+            assert 'real content' in f.read()
+
+    def test_interactive_no_bails(self):
+        repo_dir = os.path.join(self.fake_repo, '_uncategorized')
+        os.makedirs(repo_dir)
+        repo_placeholder = os.path.join(repo_dir, '.zshrc')
+        with open(repo_placeholder, 'w') as f:
+            f.write('# placeholder\n')
+        src = self.create_source_file('.zshrc', content='# home\n')
+
+        from unittest.mock import patch as mock_patch
+
+        with mock_patch('sys.stdin.isatty', return_value=True), mock_patch(
+            'builtins.input', return_value='n'
+        ), pytest.raises(SystemExit):
+            cmd_register(self._args_with_fields(src))
+
+        # Source file untouched; placeholder unchanged.
+        assert os.path.isfile(src) and not os.path.islink(src)
+        with open(repo_placeholder) as f:
+            assert 'placeholder' in f.read()
+
+    def test_non_interactive_without_force_errors(self):
+        # CI / piped invocation path: no tty, no --force → still errors,
+        # don't silently overwrite checked-in content.
+        repo_dir = os.path.join(self.fake_repo, '_uncategorized')
+        os.makedirs(repo_dir)
+        repo_placeholder = os.path.join(repo_dir, '.zshrc')
+        with open(repo_placeholder, 'w') as f:
+            f.write('# placeholder\n')
+        src = self.create_source_file('.zshrc', content='# home\n')
+
+        with pytest.raises(SystemExit):
+            cmd_register(self._args(src))
 
 
 if __name__ == '__main__':

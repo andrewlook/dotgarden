@@ -4,7 +4,7 @@ import os
 import shutil
 import sys
 
-from dotgarden import config, paths
+from dotgarden import config, paths, symlinks
 from dotgarden import registry as reg
 from dotgarden.cli.utils.logging import LOG, color_header, color_hint, color_label
 from dotgarden.cli.utils.overlays import resolve_overlay, validate_overlay_scope
@@ -88,33 +88,188 @@ def _register_wizard(args, source_path, home_dir, overlay_dir, overlay_profile):
 
 
 def _select_target_dir_and_registry(args, home_dir, main_dotfiles_dir, main_registry_path):
-    """Decide where this `register` should write and mutate args.profile if
-    inferred from an overlay.
+    """Decide where this `register` should write.
 
     Returns (dotfiles_dir, registry_path, overlay_dir, overlay_profile).
-    overlay_dir / overlay_profile are None when no overlay is active.
+    overlay_dir / overlay_profile are None when targeting the main repo.
 
-    The function is the single place that:
-      - resolves the overlay (flag > env > .dotfiles_env),
-      - validates it (same-dir check, reads profile, matches vs --profile),
-      - and picks the final write target (overlay vs main).
+    Unlike `bootstrap`, register does NOT inherit an overlay from
+    `.dotfiles_env` / `$DOTFILES_OVERLAY` just because a prior bootstrap
+    happened to activate one. That was a surprise — users running
+    `dotfile register ~/.zshrc` after a `dotfile bootstrap --overlay
+    ~/dotfiles-work` found their registration silently landing in the
+    overlay.
 
-    cmd_register's body then just does "normal register, but targeting
-    `dotfiles_dir` / `registry_path`" — no more inline if-overlay branches.
+    The overlay is now targeted only when:
+      1. `--overlay <dir>` was passed explicitly (unambiguous user intent), or
+      2. `--profile <p>` was passed AND the env/file overlay declares that
+         same profile (so the user's intent aligns with the overlay's scope).
+
+    Anything else → main. This keeps "sticky" overlay state from bootstrap
+    out of register's decision.
     """
-    overlay_dir, _source = resolve_overlay(args, home_dir)
+    flag_overlay = getattr(args, 'overlay', None)
+
+    if flag_overlay:
+        # Explicit flag — honor it, regardless of env/file state.
+        overlay_dir, _ = resolve_overlay(args, home_dir)
+    elif args.profile:
+        # No flag, but --profile was given. Accept the env/file overlay
+        # only if its declared profile matches the requested one.
+        env_overlay, _ = resolve_overlay(args, home_dir)
+        overlay_dir = None
+        if env_overlay:
+            try:
+                env_overlay_profile = symlinks._read_overlay_profile(env_overlay)
+            except reg.RegistryError:
+                env_overlay_profile = None
+            if env_overlay_profile == args.profile:
+                overlay_dir = env_overlay
+            else:
+                LOG.info(
+                    f'Overlay at {env_overlay} declares profile '
+                    f'{env_overlay_profile!r}; --profile is {args.profile!r}. '
+                    f'Registering to main repo.'
+                )
+    else:
+        # Neither --overlay nor --profile — register to main, even if a
+        # sticky overlay is in .dotfiles_env.
+        overlay_dir = None
+
     if not overlay_dir:
         return main_dotfiles_dir, main_registry_path, None, None
 
     overlay_profile = validate_overlay_scope(overlay_dir, main_dotfiles_dir, args.profile)
-    # Infer profile from overlay when not explicitly passed. Stored on
-    # the entry for consistency, even though it's implicit in the overlay.
+    # Mirror the overlay's profile onto args.profile so it's stored
+    # consistently on the registry entry.
     args.profile = overlay_profile
     LOG.info(f'Registering to overlay {overlay_dir} (profile={overlay_profile})')
-
-    dotfiles_dir = overlay_dir
     registry_path = os.path.join(overlay_dir, config.REGISTRY_FILENAME)
-    return dotfiles_dir, registry_path, overlay_dir, overlay_profile
+    return overlay_dir, registry_path, overlay_dir, overlay_profile
+
+
+def _check_cross_registry_conflicts(
+    source_path, home_dir, main_dotfiles_dir, main_registry_path, overlay_dir
+):
+    """When targeting the overlay, also check the main registry for conflicts.
+
+    Without this, a user can re-register a file that's already in main into
+    the overlay (different registry file → no conflict in the overlay's own
+    load), ending up with two entries for the same source_path.
+
+    Returns the main-registry entry dict if one exists, else None. Caller
+    decides how to surface it (error vs prompt).
+    """
+    if not overlay_dir:
+        return None
+    if not os.path.exists(main_registry_path):
+        return None
+    try:
+        main_registry = reg.load(main_registry_path)
+    except reg.RegistryError:
+        return None
+    return reg.find_by_source(main_registry, paths.format_for_display(source_path, home_dir))
+
+
+def _confirm_replace_repo_file(repo_abs, source_path, home_dir, is_interactive):
+    """When the repo already has a non-symlink file at the destination,
+    prompt the user before overwriting it.
+
+    Common case: the starter template ships a placeholder `.zshrc`, the user
+    clones the repo and runs `dotfile register ~/.zshrc` to promote their
+    real shell config. The naive behavior (error with "use --force") hides
+    the intent — prompt instead so the user can say "yes, my home version
+    is the one I want checked in".
+
+    Returns True when the caller should proceed with the overwrite, False
+    when the user declined (caller should bail).
+    """
+    repo_size = os.path.getsize(repo_abs)
+    home_size = os.path.getsize(source_path)
+    rel = os.path.relpath(repo_abs)
+    src_display = paths.format_for_display(source_path, home_dir)
+    print()
+    print(color_header('Destination already exists in the repo'))
+    print(f'  repo:  {rel}  ({repo_size} bytes)')
+    print(f'  home:  {src_display}  ({home_size} bytes)')
+    print(color_hint(
+        '  The home file will replace the repo file. Useful when the repo '
+        'ships a placeholder (e.g. a starter template) and you want your '
+        'real version checked in. A diff preview is available.'
+    ))
+    if not is_interactive:
+        # Non-interactive mode: keep the hard error — scripts shouldn't
+        # silently overwrite tracked content.
+        LOG.error(f'Destination already exists: {rel}')
+        LOG.error('Run interactively to review + confirm, or pass --force to overwrite.')
+        return False
+    while True:
+        response = input('  Replace repo file with home version? [y/N/diff]: ').strip().lower()
+        if response in ('y', 'yes'):
+            return True
+        if response in ('', 'n', 'no'):
+            print('  Skipped.')
+            return False
+        if response in ('d', 'diff'):
+            _show_file_diff(repo_abs, source_path)
+            continue
+        print(f'  Unknown response {response!r}; expected y/N/diff.')
+
+
+def _convention_repo_path(source_path, home_dir):
+    """If `source_path` naturally maps to a convention-discovered location,
+    return the repo-relative path that the convention would link from.
+
+    Covers:
+      - Root dotfiles:  ~/.zshrc         → ".zshrc"
+      - .config/* tree: ~/.config/fish/  → ".config/fish"
+                        ~/.config/fish/config.fish → ".config/fish/config.fish"
+
+    Returns None for anything outside those two conventions
+    (`~/Library/…`, `~/.claude/…`, `~/tools/…`, etc.) — those genuinely need
+    a registry entry because the convention scanner won't find them.
+    """
+    rel = os.path.relpath(source_path, home_dir)
+    if rel.startswith('..'):
+        return None  # outside $HOME
+    first = rel.split(os.sep, 1)[0]
+
+    # .config/* convention: any file/dir under ~/.config/
+    if first == config.DOT_CONFIG_DIR:
+        return rel
+
+    # Root dotfile convention: first segment is a dotfile at $HOME root.
+    # Only single-segment paths qualify — `~/.claude/skills/…` is a
+    # subdirectory of a dotfile, not a root dotfile itself, and belongs
+    # in the registry.
+    if os.sep not in rel and first.startswith('.'):
+        return rel
+
+    return None
+
+
+def _show_file_diff(repo_abs, source_path):
+    """Print a unified diff (repo → home) for user review inside the prompt."""
+    import difflib
+
+    try:
+        with open(repo_abs, 'r') as f:
+            repo_lines = f.readlines()
+        with open(source_path, 'r') as f:
+            home_lines = f.readlines()
+    except UnicodeDecodeError:
+        print('  (binary content — diff skipped)')
+        return
+    rel = os.path.relpath(repo_abs)
+    diff = difflib.unified_diff(
+        repo_lines, home_lines, fromfile=f'repo/{rel}', tofile=source_path, lineterm=''
+    )
+    printed = False
+    for line in diff:
+        print(f'    {line.rstrip()}')
+        printed = True
+    if not printed:
+        print('  (files are identical)')
 
 
 def cmd_register(args):
@@ -148,6 +303,56 @@ def cmd_register(args):
             reg.remove(registry, existing['id'])
             LOG.info(f'Replacing existing registration: {existing["id"]}')
 
+        # When the caller targets the overlay, registry-level uniqueness is
+        # checked in the overlay's registry file only. Walk the main registry
+        # too so we can catch a file that's already registered in main and
+        # was about to get a shadow entry in the overlay.
+        cross = _check_cross_registry_conflicts(
+            source_path, home_dir, main_dotfiles_dir, main_registry_path, overlay_dir
+        )
+        if cross and not args.force:
+            LOG.error(
+                f'File {paths.format_for_display(source_path, home_dir)!r} is already '
+                f'registered in the main repo as {cross["id"]!r}. '
+                f'Unregister it there first (`dotfile unregister {cross["id"]}`) '
+                f'or rerun with --force to shadow it in the overlay.'
+            )
+            sys.exit(1)
+        if cross and args.force:
+            LOG.warning(
+                f'Source already registered in main as {cross["id"]!r}; overlay '
+                f'entry will shadow it at bootstrap time.'
+            )
+
+        # Bail if the source is already a symlink into any known repo
+        # (main OR overlay). Catches two scenarios:
+        # 1. File was convention-registered previously (no registry entry,
+        #    just a symlink into main). Re-registering would duplicate.
+        # 2. File was registered in main, and now the user is trying to
+        #    also register it in the overlay (source is a symlink into
+        #    main, but we're targeting overlay).
+        # --force bypasses, letting the later overwrite paths handle the
+        # replacement.
+        if os.path.islink(source_path) and not args.force:
+            link_target = os.path.realpath(source_path)
+            for candidate_dir, label in (
+                (main_dotfiles_dir, 'main repo'),
+                (overlay_dir, 'overlay') if overlay_dir else (None, None),
+            ):
+                if not candidate_dir:
+                    continue
+                candidate_abs = os.path.realpath(candidate_dir)
+                if link_target == candidate_abs or link_target.startswith(
+                    candidate_abs + os.sep
+                ):
+                    LOG.error(
+                        f'{paths.format_for_display(source_path, home_dir)} is '
+                        f'already a symlink into the {label} ({link_target}). '
+                        f'Unregister it (or `rm` the symlink and move the file back) '
+                        f'before re-registering, or pass --force to overwrite.'
+                    )
+                    sys.exit(1)
+
         # Prompt for any missing fields when running interactively. No-op on
         # non-tty (tests, CI) and when --yes is passed. When an overlay is
         # active, the overlay_profile is already inferred and baked into
@@ -160,45 +365,85 @@ def cmd_register(args):
             overlay_profile if overlay_dir else None,
         )
 
-        category = args.category
-        if not category:
-            category = paths.auto_detect_category(source_path, home_dir)
-            if category:
-                LOG.info(f'Auto-detected category: {category}')
-            else:
-                LOG.info('No category (home directory file, will be placed at repo root)')
+        # Decide if this registration can skip the registry entirely — the
+        # `.config/*` and root-dotfile conventions discover these paths at
+        # bootstrap time without help from `__registry__.yaml`.
+        #
+        # Registry mode is forced when the user passes any of:
+        #   --category, --name, --os, --profile, --overlay
+        # Each of those is a signal that they want registry-controlled
+        # placement (a specific category dir, a custom repo path, or OS/
+        # profile-gated linking via `__os__/` / `__profile__/`).
+        use_registry = True
+        convention_path = None
+        registry_flags = (
+            args.category, args.name, args.os, args.profile, overlay_dir,
+        )
+        if not any(registry_flags):
+            convention_path = _convention_repo_path(source_path, home_dir)
+            if convention_path is not None:
+                use_registry = False
 
-        if category:
-            repo_dir = f'_{category}'
-        elif args.os:
-            repo_dir = f'__{args.os}__'
-        elif args.profile:
-            repo_dir = f'__{args.profile}__'
+        if not use_registry:
+            repo_path = convention_path
+            category = None
+            entry_id = None
+            LOG.info(
+                f'Path matches a convention ({convention_path!r}); skipping '
+                f'registry — bootstrap auto-discovers it.'
+            )
         else:
-            repo_dir = ''
+            category = args.category
+            if not category:
+                category = paths.auto_detect_category(source_path, home_dir)
+                if category:
+                    LOG.info(f'Auto-detected category: {category}')
+                else:
+                    LOG.info('No category (home directory file, will be placed at repo root)')
 
-        filename = args.name if args.name else os.path.basename(source_path)
-        repo_path = os.path.join(repo_dir, filename)
+            if category:
+                repo_dir = f'_{category}'
+            elif args.os:
+                repo_dir = f'__{args.os}__'
+            elif args.profile:
+                repo_dir = f'__{args.profile}__'
+            else:
+                repo_dir = ''
 
-        entry_id = reg.derive_id(repo_path)
+            filename = args.name if args.name else os.path.basename(source_path)
+            repo_path = os.path.join(repo_dir, filename)
 
-        if reg.find_by_id(registry, entry_id) and not args.force:
-            LOG.error(f'ID conflict: {entry_id} already exists')
-            LOG.error('Use --name to specify a different name')
-            sys.exit(1)
-        if reg.find_by_id(registry, entry_id) and args.force:
-            reg.remove(registry, entry_id)
+            entry_id = reg.derive_id(repo_path)
+
+        if use_registry:
+            if reg.find_by_id(registry, entry_id) and not args.force:
+                LOG.error(f'ID conflict: {entry_id} already exists')
+                LOG.error('Use --name to specify a different name')
+                sys.exit(1)
+            if reg.find_by_id(registry, entry_id) and args.force:
+                reg.remove(registry, entry_id)
         repo_abs = os.path.join(dotfiles_dir, repo_path)
 
         if os.path.exists(repo_abs) and not args.force:
-            LOG.error(f'Destination already exists: {repo_path}')
-            LOG.error('Use --force to overwrite')
-            sys.exit(1)
+            # Regular file at the destination → prompt to replace (the
+            # "starter template ships a placeholder, user promotes their
+            # real home version" flow). Directories and symlinks still
+            # use the hard-error path because replacing them is a bigger
+            # hammer than a prompt should reach for.
+            if os.path.isfile(repo_abs) and not os.path.islink(repo_abs):
+                if not _confirm_replace_repo_file(
+                    repo_abs, source_path, home_dir, _register_is_interactive(args)
+                ):
+                    sys.exit(1)
+            else:
+                LOG.error(f'Destination already exists: {repo_path}')
+                LOG.error('Use --force to overwrite')
+                sys.exit(1)
 
         target_label = (
             f'overlay {overlay_dir} (profile: {overlay_profile})'
             if overlay_dir
-            else 'main registry'
+            else ('main registry' if use_registry else 'main repo (convention, no registry)')
         )
         print('\n' + '=' * 60)
         print('REGISTRATION PREVIEW')
@@ -206,16 +451,21 @@ def cmd_register(args):
         print(f'Source:      {paths.format_for_display(source_path, home_dir)}')
         print(f'Destination: {repo_path}')
         print(f'Target:      {target_label}')
-        print(f'Category:    {category or "(none - repo root)"}')
-        print(f'OS:          {args.os or "all"}')
-        print(f'Profile:     {args.profile or "all"}')
-        print(f'ID:          {entry_id}')
+        if use_registry:
+            print(f'Category:    {category or "(none - repo root)"}')
+            print(f'OS:          {args.os or "all"}')
+            print(f'Profile:     {args.profile or "all"}')
+            print(f'ID:          {entry_id}')
         print('=' * 60)
         print('\nThis will:')
         print(f'  1. Move {paths.format_for_display(source_path, home_dir)}')
         print(f'     to {repo_path} (in {target_label})')
         print('  2. Create symlink at original location')
-        print('  3. Add entry to __registry__.yaml')
+        if use_registry:
+            print('  3. Add entry to __registry__.yaml')
+        else:
+            print('  3. (skipping registry — path matches the convention; '
+                  'bootstrap auto-discovers it)')
         print()
 
         if args.dry_run:
@@ -251,18 +501,30 @@ def cmd_register(args):
         LOG.info(f'Creating symlink: {source_path} -> {repo_abs}')
         os.symlink(repo_abs, source_path)
 
-        entry = {
-            'id': entry_id,
-            'source_path': paths.format_for_display(source_path, home_dir),
-            'repo_path': repo_path,
-            'category': category,
-            'os': args.os,
-            'profile': args.profile,
-        }
-        reg.add(registry, entry)
-        reg.save(registry, registry_path, dotfiles_dir)
-
-        print(f'\n✓ Successfully registered: {entry_id}')
+        if use_registry:
+            entry = {
+                'id': entry_id,
+                'source_path': paths.format_for_display(source_path, home_dir),
+                'repo_path': repo_path,
+                'category': category,
+                'os': args.os,
+                'profile': args.profile,
+            }
+            reg.add(registry, entry)
+            reg.save(registry, registry_path, dotfiles_dir)
+            print(f'\n✓ Successfully registered: {entry_id}')
+        else:
+            # Overlay would have taken the registry path above — this branch
+            # is main-repo convention only. No registry write; still save
+            # the registry file if it didn't exist yet so subsequent
+            # invocations find valid YAML (no-op when the file is already
+            # present and unchanged).
+            print(
+                f'\n✓ Successfully linked: '
+                f'{paths.format_for_display(source_path, home_dir)} → {repo_path}'
+            )
+            print('  (no registry entry — convention-discovered at bootstrap)')
+            return
         print(f'  Symlink: {paths.format_for_display(source_path, home_dir)} -> {repo_path}')
 
     except (FileNotFoundError, ValueError) as e:
