@@ -1,0 +1,10 @@
+# Default owner — everything routes here unless a more specific rule
+# below applies.
+* @andrewlook
+
+# Security-critical paths, called out explicitly so changes never sneak
+# in without owner review.
+/.github/workflows/   @andrewlook
+/.github/dependabot.yml @andrewlook
+/SECURITY.md          @andrewlook
+/.github/CODEOWNERS   @andrewlook
