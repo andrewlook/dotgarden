@@ -16,8 +16,8 @@ jobs:
     name: pip-audit (CVE scan)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-      - uses: astral-sh/setup-uv@v8.1.0
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+      - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b  # v8.1.0
       # Export the locked dep tree (runtime + extras) into a requirements
       # file so pip-audit can scan exact pinned versions without invoking
       # pip itself (--disable-pip). If a CVE has no fix yet, add
