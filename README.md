@@ -1,3 +1,10 @@
+<!--
+  This README is published to PyPI as the project's long description. PyPI
+  does not resolve relative markdown links against the source repo, so every
+  internal doc link below uses an absolute https://github.com/... URL.
+  Please keep them absolute — don't "tidy" them back to repo-relative paths.
+-->
+
 # dotgarden
 
 Manage dotfiles by moving them into a git-tracked repo and pointing `$HOME` at
@@ -52,7 +59,7 @@ Runs every symlink and `.local` generator from a clean slate. Safe to re-run.
 
 - `--os` — required on first run; remembered in `~/.dotfiles_env` after.
 - `--profile` — activates a profile's variant files and registry entries.
-- `--overlay` — layers a second repo on top (see GUIDE.md § Overlay).
+- `--overlay` — layers a second repo on top (see [GUIDE.md § Overlay](https://github.com/andrewlook/dotgarden/blob/main/GUIDE.md#9-overlay--carve-out-private-content)).
 - `--dry-run` — print the plan without touching the filesystem.
 - `--skip-registry` — only handle root + `.config/*` conventions, skip registered entries.
 - `--skip-unsupported` — silently skip `.local` generation for tool types with no known include syntax.
@@ -92,8 +99,9 @@ Works on root paths (`.gitconfig`) and nested paths under `.config/<tool>/`
 
 ## Documentation
 
-- [GUIDE.md](GUIDE.md) — hands-on walkthrough: starting a repo, registering
-  your first files, specializing for OS/profile, setting up an overlay
+- [GUIDE.md](https://github.com/andrewlook/dotgarden/blob/main/GUIDE.md) —
+  hands-on walkthrough: starting a repo, registering your first files,
+  specializing for OS/profile, setting up an overlay
 - [Starter template](https://github.com/andrewlook/dotgarden-template) — clone
   this to begin a new dotfiles repo
 - Source and issue tracker:
@@ -101,7 +109,7 @@ Works on root paths (`.gitconfig`) and nested paths under `.config/<tool>/`
 
 ## Development
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, testing (`mise run test`,
+See [CONTRIBUTING.md](https://github.com/andrewlook/dotgarden/blob/main/CONTRIBUTING.md) for setup, testing (`mise run test`,
 `./test-docker`), and the publish flow. The package layout, entry point
 (`dotgarden.cli:main`), and test harness all live in this repo — edits
 happen here directly.
@@ -112,4 +120,4 @@ as the clone-ready starting point documented in Quick start above.
 
 ## License
 
-MIT — see [LICENSE](./LICENSE).
+MIT — see [LICENSE](https://github.com/andrewlook/dotgarden/blob/main/LICENSE).
