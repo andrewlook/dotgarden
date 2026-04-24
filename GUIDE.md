@@ -39,17 +39,23 @@ edits the same file — they're the same inode.
 dotfile register ~/.zshrc
 ```
 
-**If the repo already has a file at the destination**, register stops with
-`Destination already exists`. The starter ships example files for common
-dotfiles (`.zprofile`, `.gitconfig`, `.tmux.conf`, …), so before registering
-your system version:
+**If the repo already has a file at the destination** (common when starting
+from the template — it ships placeholders for `.zprofile`, `.gitconfig`,
+`.tmux.conf`, …), register pauses with a `[y/N/diff]` prompt:
 
-- Delete the template copy from the repo (`rm ~/dotfiles/.zshrc`) if you want
-  your system file to become the source of truth, then register.
-- Or pass `--force` to overwrite the repo's version with your system version.
+```
+Destination already exists in the repo
+  repo:  .zshrc  (512 bytes)
+  home:  ~/.zshrc  (1823 bytes)
+  Replace repo file with home version? [y/N/diff]:
+```
 
-A safer first pass is to explore what the starter ships and delete any example
-you don't want before registering your equivalents.
+Answer `y` to promote your system file over the template placeholder,
+`n` to bail, or `diff` to see a unified diff first. Non-interactive
+callers (CI, piped input) still need `--force` to overwrite.
+
+A safer first pass is to explore what the starter ships and delete any
+example you don't want before registering your equivalents.
 
 ## 3. Register a `.config/` directory
 
@@ -136,13 +142,19 @@ Undo a registration (restore the file to its original location, remove the
 symlink, delete the repo copy):
 
 ```bash
-dotfile unregister zshrc                 # by id
-dotfile unregister ~/.zshrc              # by source path
-dotfile unregister _cursor/settings.json # by repo path
+dotfile unregister cursor-settings                                        # by id
+dotfile unregister "~/Library/Application Support/Cursor/User/settings.json"  # by source path
+dotfile unregister _cursor/settings.json                                  # by repo path
 ```
 
-To change how a file is registered (e.g. add `--os macos` scoping), unregister
-and re-register:
+`unregister` operates on **registry entries** — files that were registered
+with `--category`, `--name`, `--os`, `--profile`, or `--overlay`. Files you
+registered the convention way (e.g. `dotfile register ~/.zshrc` →
+`~/dotfiles/.zshrc`) have no registry entry to remove; to undo, delete the
+repo file and the symlink by hand: `rm ~/.zshrc ~/dotfiles/.zshrc`.
+
+To change how a registry-backed file is registered (e.g. add `--os macos`
+scoping), unregister and re-register:
 
 ```bash
 dotfile unregister cursor-settings
