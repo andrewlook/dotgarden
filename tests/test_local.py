@@ -57,21 +57,6 @@ def test_is_profile_specific(filename, expected):
     assert is_profile_specific(filename) == expected
 
 
-# -- format_local_include --
-
-
-FORMAT_CASES = [
-    ('shell', '.macos.zprofile', '[[ -f ~/.macos.zprofile ]] && . ~/.macos.zprofile'),
-    ('git', '.work.gitconfig', '[include]\n    path = .work.gitconfig'),
-    ('tmux', '.macos.tmux.conf', 'source-file -q ~/.macos.tmux.conf'),
-    (
-        'fish',
-        '.config/fish/config.macos.fish',
-        'test -e ~/.config/fish/config.macos.fish; and source ~/.config/fish/config.macos.fish',
-    ),
-]
-
-
 # -- get_tool_type (Unit 3) --
 
 
@@ -91,6 +76,20 @@ TOOL_TYPE_CASES = [
 def test_get_tool_type(base, expected):
     assert get_tool_type(base) == expected
 
+
+# -- format_local_include --
+
+
+FORMAT_CASES = [
+    ('shell', '.macos.zprofile', '[[ -f ~/.macos.zprofile ]] && . ~/.macos.zprofile'),
+    ('git', '.work.gitconfig', '[include]\n    path = .work.gitconfig'),
+    ('tmux', '.macos.tmux.conf', 'source-file -q ~/.macos.tmux.conf'),
+    (
+        'fish',
+        '.config/fish/config.macos.fish',
+        'test -e ~/.config/fish/config.macos.fish; and source ~/.config/fish/config.macos.fish',
+    ),
+]
 
 @pytest.mark.parametrize(
     'tool_type,variant,expected', FORMAT_CASES, ids=[c[0] for c in FORMAT_CASES]
