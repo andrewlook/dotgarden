@@ -1314,5 +1314,21 @@ class TestRegisterReplacePlaceholder(CLITestCase):
             cmd_register(self._args(src))
 
 
+class TestVersionFlag(unittest.TestCase):
+    """`dotfile --version` prints the installed package version and exits 0."""
+
+    def test_version_flag_prints_package_version(self):
+        from dotgarden import __version__
+        from dotgarden.cli.main import main
+
+        with patch('sys.argv', ['dotfile', '--version']), pytest.raises(SystemExit) as exc:
+            with patch('sys.stdout') as mock_stdout:
+                main()
+
+        assert exc.value.code == 0
+        printed = ''.join(call.args[0] for call in mock_stdout.write.call_args_list)
+        assert f'dotfile {__version__}' in printed
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -15,6 +15,7 @@ import argparse
 import os
 import sys
 
+from dotgarden import __version__
 from dotgarden.cli.commands import (
     cmd_bootstrap,
     cmd_doctor,
@@ -56,6 +57,7 @@ def _build_parser():
     parser = argparse.ArgumentParser(
         description='Manage dotfiles: register configs, bootstrap symlinks, and keep everything in sync.'
     )
+    parser.add_argument('--version', action='version', version=f'dotfile {__version__}')
     subparsers = parser.add_subparsers(dest='command', help='Available commands')
 
     # Register
