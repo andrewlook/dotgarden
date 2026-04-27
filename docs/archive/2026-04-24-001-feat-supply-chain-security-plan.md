@@ -1,8 +1,10 @@
 ---
 title: "feat: incremental supply chain security for dotgarden"
 type: feat
-status: active
+status: completed
 date: 2026-04-24
+completed: 2026-04-26
+shipped_in: andrewlook/dotgarden#11
 ---
 
 # feat: incremental supply chain security for dotgarden
