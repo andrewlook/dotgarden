@@ -1,5 +1,23 @@
 # Changelog
 
+## v0.3.1 (2026-04-27)
+
+Supply-chain hardening release. No package behavior changes — same
+`dotfile` CLI surface as `v0.3.0`. The notable additions land in CI,
+release tooling, and documentation.
+
+### Security
+- Every PyPI release now ships [PEP 740](https://peps.python.org/pep-0740/) artifact attestations — see README's "Verifying release attestations" for the verification command (uses [`pypi-attestations`](https://github.com/trailofbits/pypi-attestations))
+- CVE scanning: `pip-audit` runs on every PR and weekly on `main`
+- Ruff `flake8-bandit` (`S`) rules added to lint
+- Third-party GitHub Actions pinned to immutable commit SHAs with version comments; Dependabot keeps them current with a 7-day cooldown
+- `zizmor` static-analyzes workflows on every PR; clean baseline at release time
+- Publish workflow hardened: workflow-level `permissions: {}` with per-job least privilege, `persist-credentials: false` on every checkout, `enable-cache: false` on the publish-time `setup-uv` (cache-poisoning gate)
+- Disclosure policy: see [SECURITY.md](https://github.com/andrewlook/dotgarden/blob/main/SECURITY.md); private vulnerability reporting enabled
+
+### Internal
+- `bootstrap()` now raises `ValueError` instead of `AssertionError` when called without `os_type` — prevents silent skip under `python -O`
+
 ## v0.3.0 (2026-04-23)
 
 First release on PyPI. Install with `uv tool install dotgarden`, `pipx install dotgarden`, or `pip install dotgarden`.
@@ -36,14 +54,6 @@ First release on PyPI. Install with `uv tool install dotgarden`, `pipx install d
 ### Packaging
 - Tag-push release flow wired up: pushing `v*` runs `.github/workflows/publish.yml`, which builds `sdist` + `wheel` and uploads via PyPI OIDC trusted publishing — no API tokens in CI
 - Strict hatchling sdist allowlist — only package-relevant files (`dotgarden/`, `tests/`, `README.md`, `LICENSE`, `CHANGELOG.md`, `pyproject.toml`) ship to PyPI
-
-### Security
-- Every PyPI release ships [PEP 740](https://peps.python.org/pep-0740/) artifact attestations — see README's "Verifying release attestations" for the verification command
-- CVE scanning: `pip-audit` runs on every PR and weekly on `main`
-- Ruff `flake8-bandit` (`S`) rules added to lint
-- Third-party GitHub Actions pinned to immutable commit SHAs with version comments; Dependabot keeps them current with a 7-day cooldown
-- `zizmor` static-analyzes workflows on every PR; clean baseline at release time
-- Disclosure policy: see [SECURITY.md](https://github.com/andrewlook/dotgarden/blob/main/SECURITY.md)
 
 ## v0.2.0 (2026-04-15)
 
