@@ -756,6 +756,53 @@ class TestDiscoverOverlayManaged(unittest.TestCase):
         assert devbox[0]['repo_path'] == join(self.overlay, '_devbox/init.sh')
         assert devbox[0]['profile'] == 'work'
 
+    def test_os_conditioned_entries_filtered_to_current_os(self):
+        # OS-keyed groups in the overlay registry must be filtered the same
+        # way _process_registry filters them at bootstrap time — otherwise
+        # status reports never-linked other-OS entries as UNLINKED.
+        self._write_overlay_registry(
+            profile='work',
+            extra={
+                'notion-next': {
+                    'linux': [
+                        {'_notion-next/AGENTS.local.md': '/work/notion-next/AGENTS.local.md'},
+                    ],
+                    'macos': [
+                        {'_notion-next/AGENTS.local.md': '~/src/n0/AGENTS.local.md'},
+                        {'_notion-next/AGENTS.local.md': '~/src/n0/CLAUDE.local.md'},
+                    ],
+                }
+            },
+        )
+        self._touch_overlay('_notion-next/AGENTS.local.md')
+
+        entries = discover_overlay_managed(self.overlay, self.home, 'macos')
+
+        sources = {e['source_path'] for e in entries}
+        assert '~/src/n0/AGENTS.local.md' in sources
+        assert '~/src/n0/CLAUDE.local.md' in sources
+        assert '/work/notion-next/AGENTS.local.md' not in sources
+
+    def test_profile_conditioned_entries_filtered_to_overlay_profile(self):
+        # A profile key other than the overlay's declared profile is skipped
+        # rather than silently rewritten to the overlay profile.
+        self._write_overlay_registry(
+            profile='work',
+            extra={
+                'tools': {
+                    'personal': [{'_tools/rc': '~/.personal-rc'}],
+                    'work': [{'_tools/rc': '~/.work-rc'}],
+                }
+            },
+        )
+        self._touch_overlay('_tools/rc')
+
+        entries = discover_overlay_managed(self.overlay, self.home, 'macos')
+
+        sources = {e['source_path'] for e in entries}
+        assert '~/.work-rc' in sources
+        assert '~/.personal-rc' not in sources
+
     def test_missing_overlay_returns_empty(self):
         assert discover_overlay_managed(None, self.home, 'macos') == []
         assert discover_overlay_managed('/nonexistent', self.home, 'macos') == []

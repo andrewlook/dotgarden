@@ -315,6 +315,14 @@ def discover_overlay_managed(overlay_dir, home_dir, os_type):
         return entries
 
     for entry in overlay_registry.get('registered_files', []):
+        # Mirror _process_registry's condition filtering so status doesn't
+        # report entries bootstrap would never link on this OS/profile.
+        entry_os = entry.get('os')
+        entry_profile = entry.get('profile')
+        if entry_os and os_type and entry_os != os_type:
+            continue
+        if entry_profile and entry_profile != overlay_profile:
+            continue
         # Overlay-declared entries inherit the overlay's implicit profile.
         new_entry = dict(entry)
         new_entry['repo_path'] = os.path.join(overlay_dir, entry['repo_path'])
