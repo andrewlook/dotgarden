@@ -44,6 +44,16 @@ class CLITestCase(unittest.TestCase):
         self.defaults_patcher = patch('dotgarden.config.defaults', return_value=self.cfg)
         self.defaults_patcher.start()
 
+        # Scrub DOTFILES_* from the environment so tests never resolve the
+        # developer's real repos. resolve_overlay() reads $DOTFILES_OVERLAY
+        # with higher precedence than ~/.dotfiles_env, so without this a
+        # real exported overlay silently wins over the fake one and
+        # register/bootstrap tests mutate the developer's actual overlay.
+        self.env_patcher = patch.dict(os.environ)
+        self.env_patcher.start()
+        for var in ('DOTFILES_OVERLAY', 'DOTFILES_OS', 'DOTFILES_PROFILE', 'DOTFILES_DIR'):
+            os.environ.pop(var, None)
+
         # Monkey-patch os.path.expanduser so CLI code (which uses
         # `os.path.expanduser` via `import os`) sees fake_home as `~`.
         # Must stay fully-qualified — the short `expanduser` import would
@@ -55,6 +65,7 @@ class CLITestCase(unittest.TestCase):
 
     def tearDown(self):
         self.defaults_patcher.stop()
+        self.env_patcher.stop()
         os.path.expanduser = self.orig_expanduser  # noqa: TID251
         shutil.rmtree(self.tmpdir)
 
