@@ -45,6 +45,25 @@ creates symlinks into `$HOME`.
   resolution inside the CLI, so bootstrap experiments don't touch your real
   home. Every subcommand honors it.
 
+## Git history: rebase only, never merge
+
+**This repo keeps a linear history. Never create a merge commit.**
+
+- Bringing a branch up to date with `main`: `git rebase main`. Not
+  `git merge main`.
+- Landing a branch on `main`: rebase it onto `main` first, then advance `main`
+  to it. `git checkout main && git rebase <branch>` fast-forwards without
+  creating a merge commit; `git push origin <branch>:main` does the same
+  server-side. Never `git merge <branch>`.
+- `git pull` must not be allowed to merge. `[pull] rebase = true`, or use
+  `git pull --rebase` / `git pull --ff-only` explicitly.
+- If you find you've already made a merge commit, `git rebase` the branch onto
+  `main` — the rebase drops it and replays the real commits.
+
+`--ff-only` merges create no merge commit and are technically fine, but the
+rule is phrased as "no `git merge`" on purpose: it's one thing to remember, and
+tooling that asks about "merging" should get a consistent answer.
+
 ## Coding conventions
 
 - Python 3.10+ (`requires-python = ">=3.10"` in `pyproject.toml`). Type hints
@@ -86,7 +105,8 @@ forgetting to update it will reject valid registries.
 
 1. Bump `version = "..."` in `pyproject.toml`.
 2. Update `CHANGELOG.md` with a new entry.
-3. Commit + merge to `main`.
+3. Commit, then rebase onto `main` and fast-forward — see "Git history"
+   above. No merge commits.
 4. Tag `v<version>` and push. `.github/workflows/publish.yml` builds and
    publishes via PyPI trusted publishing (OIDC) — no token needed.
 
@@ -107,3 +127,10 @@ etc. directly from library code.
 - Auto-applying refactors across `dotgarden/cli/commands/` without running
   the full `mise run test` (subcommands share module-level state through
   `dotgarden.config` and re-exports).
+- `git merge` in any form — see "Git history" above.
+- Running the test suite with `DOTFILES_*` exported in your shell and assuming
+  isolation. `CLITestCase` scrubs them now, but `resolve_overlay()` reads
+  `$DOTFILES_OVERLAY` at higher precedence than `~/.dotfiles_env`, so any new
+  test that shells out to the CLI without that scrubbing will happily mutate
+  your real dotfiles repo. Check `git status` in your actual overlay if a test
+  ever looks suspiciously stateful.
