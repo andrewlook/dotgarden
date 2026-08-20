@@ -79,6 +79,8 @@ def cmd_bootstrap(args):
                 print(f'    \033[2m✓ {display}{arrow}\033[0m')
             elif action == 'missing':
                 print(f'    \033[31m✗ {display}{arrow}  (missing)\033[0m')
+            elif action == 'error':
+                print(f'    \033[31m✗ {display}{arrow}  (failed)\033[0m')
         print()
 
     counts = {}
@@ -95,10 +97,11 @@ def cmd_bootstrap(args):
         ('repaired', 'repaired'),
         ('ok', 'already ok'),
         ('missing', 'missing'),
+        ('error', 'failed'),
     ]:
         n = counts.get(action, 0)
         if n:
-            if action == 'missing':
+            if action in ('missing', 'error'):
                 parts.append(f'\033[31m{n} {label}\033[0m')
             elif action in ('repaired', 'would_repair'):
                 parts.append(f'\033[33m{n} {label}\033[0m')
@@ -109,3 +112,12 @@ def cmd_bootstrap(args):
         print(f'[DRY RUN] {", ".join(parts)}. No changes made.')
     else:
         print(f'✓ Bootstrap complete ({", ".join(parts)})')
+
+    # A link that couldn't be created no longer aborts bootstrap mid-run (see
+    # symlinks._apply_link), so the exit code is the only thing left to make it
+    # loud. Everything else — including the .local hubs — has been written by
+    # now, which is the whole point: report the failure without letting it take
+    # the rest of the config down with it.
+    if counts.get('error'):
+        LOG.error(f'{counts["error"]} link(s) failed — see above')
+        sys.exit(1)

@@ -414,16 +414,35 @@ def _check_link_state(abs_link, abs_real):
 
 
 def _apply_link(abs_link, abs_real, phase, dry_run, results):
-    """Create a symlink (or record the plan in dry-run). Appends one result."""
+    """Create a symlink (or record the plan in dry-run). Appends one result.
+
+    A link that can't be created is recorded as an 'error' result instead of
+    raising. One unlinkable entry used to abort the entire bootstrap, and
+    because .local generation is the last phase (see `bootstrap`), aborting
+    meant the `.local` hubs were never written — leaving a home directory where
+    every symlink looks right but `~/.gitconfig.local`, `~/.zprofile.local` and
+    `~/.tmux.conf.local` are all absent. Git silently ignores a missing include,
+    so the visible symptom was an unset user.name/user.email rather than
+    anything pointing at the real failure.
+
+    A registry entry aimed at a path this host doesn't have must not be able to
+    cost you your git identity. The caller reports 'error' results and exits
+    non-zero, so the failure is still loud — just no longer load-bearing.
+    """
     if dry_run:
         results.append((_check_link_state(abs_link, abs_real), abs_link, abs_real, phase))
         return
-    status = prepare_symlink_target(abs_real, abs_link)
-    if status == 'ok':
-        results.append(('ok', abs_link, abs_real, phase))
+    try:
+        status = prepare_symlink_target(abs_real, abs_link)
+        if status == 'ok':
+            results.append(('ok', abs_link, abs_real, phase))
+            return
+        action = 'repaired' if status == 'stale' else 'created'
+        create_symlink(abs_real, abs_link)
+    except (OSError, shutil.Error) as e:
+        LOG.error(f'Could not link {abs_link} -> {abs_real}: {e}')
+        results.append(('error', abs_link, abs_real, phase))
         return
-    action = 'repaired' if status == 'stale' else 'created'
-    create_symlink(abs_real, abs_link)
     results.append((action, abs_link, abs_real, phase))
 
 

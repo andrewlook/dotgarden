@@ -317,6 +317,52 @@ class TestBootstrapBehavior(BootstrapTestCase):
         assert actions['.bashrc'] == 'would_create', actions
 
 
+class TestBootstrapSurvivesUnlinkableEntry(BootstrapTestCase):
+    """A registry entry that can't be linked must not abort the whole run.
+
+    .local generation is the final phase, so an exception escaping the registry
+    phase used to leave every symlink in place but no `.local` hubs at all —
+    which for `.gitconfig` reads as an unset user.name/user.email, because git
+    ignores a missing include without complaint.
+    """
+
+    def _setup_unlinkable_registry(self):
+        # A regular file where a parent directory is expected: os.makedirs then
+        # fails with NotADirectoryError, no root or chmod games required.
+        with open(join(self.home, 'blocker'), 'w') as f:
+            f.write('not a directory')
+        with open(join(self.repo, 'payload.txt'), 'w') as f:
+            f.write('# payload')
+        # Absolute, not `~/...`: expanduser would resolve against the real HOME
+        # and this test would start writing into the developer's home dir.
+        dest = join(self.home, 'blocker', 'nested', 'payload.txt')
+        with open(join(self.repo, '__registry__.yaml'), 'w') as f:
+            f.write(f'version: "3.0"\ngroup:\n- payload.txt: {dest}\n')
+        # A dotfile with an OS variant, so a .local hub is expected.
+        for name in ['.zprofile', '.macos.zprofile']:
+            with open(join(self.repo, name), 'w') as f:
+                f.write(f'# {name}')
+
+    def test_reports_error_instead_of_raising(self):
+        self._setup_unlinkable_registry()
+
+        results = bootstrap(self.repo, self.home, os_type='macos')
+
+        errors = [link for action, link, _, _ in results if action == 'error']
+        assert len(errors) == 1, results
+        assert errors[0].endswith('blocker/nested/payload.txt'), errors
+
+    def test_generates_local_hubs_anyway(self):
+        self._setup_unlinkable_registry()
+
+        bootstrap(self.repo, self.home, os_type='macos')
+
+        local_path = join(self.home, '.zprofile.local')
+        assert exists(local_path), 'the .local hub must survive a failed registry entry'
+        with open(local_path) as f:
+            assert '.macos.zprofile' in f.read()
+
+
 class TestDiscoverBootstrapManaged(BootstrapTestCase):
     def test_discovers_root_files(self):
         for name in ['.bashrc', '.zshrc']:
