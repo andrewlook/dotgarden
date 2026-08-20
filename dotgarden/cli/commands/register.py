@@ -192,11 +192,13 @@ def _confirm_replace_repo_file(repo_abs, source_path, home_dir, is_interactive):
     print(color_header('Destination already exists in the repo'))
     print(f'  repo:  {rel}  ({repo_size} bytes)')
     print(f'  home:  {src_display}  ({home_size} bytes)')
-    print(color_hint(
-        '  The home file will replace the repo file. Useful when the repo '
-        'ships a placeholder (e.g. a starter template) and you want your '
-        'real version checked in. A diff preview is available.'
-    ))
+    print(
+        color_hint(
+            '  The home file will replace the repo file. Useful when the repo '
+            'ships a placeholder (e.g. a starter template) and you want your '
+            'real version checked in. A diff preview is available.'
+        )
+    )
     if not is_interactive:
         # Non-interactive mode: keep the hard error — scripts shouldn't
         # silently overwrite tracked content.
@@ -342,9 +344,7 @@ def cmd_register(args):
                 if not candidate_dir:
                     continue
                 candidate_abs = os.path.realpath(candidate_dir)
-                if link_target == candidate_abs or link_target.startswith(
-                    candidate_abs + os.sep
-                ):
+                if link_target == candidate_abs or link_target.startswith(candidate_abs + os.sep):
                     LOG.error(
                         f'{paths.format_for_display(source_path, home_dir)} is '
                         f'already a symlink into the {label} ({link_target}). '
@@ -377,7 +377,11 @@ def cmd_register(args):
         use_registry = True
         convention_path = None
         registry_flags = (
-            args.category, args.name, args.os, args.profile, overlay_dir,
+            args.category,
+            args.name,
+            args.os,
+            args.profile,
+            overlay_dir,
         )
         if not any(registry_flags):
             convention_path = _convention_repo_path(source_path, home_dir)
@@ -464,8 +468,10 @@ def cmd_register(args):
         if use_registry:
             print('  3. Add entry to __registry__.yaml')
         else:
-            print('  3. (skipping registry — path matches the convention; '
-                  'bootstrap auto-discovers it)')
+            print(
+                '  3. (skipping registry — path matches the convention; '
+                'bootstrap auto-discovers it)'
+            )
         print()
 
         if args.dry_run:

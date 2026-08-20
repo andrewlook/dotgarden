@@ -66,8 +66,7 @@ def get_overlay_profile(registry_data, registry_path):
 
 # Extensions stripped from the tail of a derived ID. Common config formats
 # whose name-minus-extension reads cleanly as a short identifier.
-_ID_STRIP_EXTENSIONS = ('.json', '.yaml', '.yml', '.toml', '.kdl', '.fish',
-                        '.conf', '.lua', '.sh')
+_ID_STRIP_EXTENSIONS = ('.json', '.yaml', '.yml', '.toml', '.kdl', '.fish', '.conf', '.lua', '.sh')
 
 
 def _strip_segment(segment):

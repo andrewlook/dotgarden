@@ -142,6 +142,5 @@ def cmd_specialize(args):
         print(f'  Added {local_name} include to {dotfile}')
 
     print(
-        f'\n✓ Specialized {dotfile} for {kind}. '
-        f'Run `dotfile bootstrap` to generate {local_name}.'
+        f'\n✓ Specialized {dotfile} for {kind}. Run `dotfile bootstrap` to generate {local_name}.'
     )

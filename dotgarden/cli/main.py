@@ -208,9 +208,7 @@ def _build_parser():
         'to the base) for a given dotfile. Works for root dotfiles (e.g. .gitconfig) and '
         'nested config files (e.g. .config/fish/config.fish). Idempotent — safe to rerun.',
     )
-    specialize_parser.add_argument(
-        'kind', choices=['os', 'profile'], help='Type of specialization'
-    )
+    specialize_parser.add_argument('kind', choices=['os', 'profile'], help='Type of specialization')
     specialize_parser.add_argument(
         'dotfile',
         help='Base dotfile to specialize (e.g. .gitconfig or .config/fish/config.fish)',

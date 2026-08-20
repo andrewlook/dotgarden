@@ -781,9 +781,7 @@ def _collect_variants(dotfiles_dir, overlay_dir, os_type, profile, exclude_files
         )
         for base, vlist in overlay_variants.items():
             variants[base] = list(dict.fromkeys(variants.get(base, []) + vlist))
-        overlay_nested = _collect_overlay_dot_config_variants(
-            overlay_dir, overlay_profile, os_type
-        )
+        overlay_nested = _collect_overlay_dot_config_variants(overlay_dir, overlay_profile, os_type)
         for base, vlist in overlay_nested.items():
             variants[base] = list(dict.fromkeys(variants.get(base, []) + vlist))
     return variants
@@ -827,7 +825,7 @@ def _resolve_unsupported_variants(unsupported, skip_unsupported):
         skipped = set()
         for base, variants in unsupported.items():
             prompt = (
-                f"No known include syntax for {base!r} "
+                f'No known include syntax for {base!r} '
                 f'(variants: {list(variants)}). Skip .local generation? [y/N] '
             )
             try:
@@ -848,8 +846,7 @@ def _resolve_unsupported_variants(unsupported, skip_unsupported):
     for base, variants in sorted(unsupported.items()):
         lines.append(f'  {base}: {len(variants)} variant(s) → {list(variants)}')
     lines.append(
-        'Add the base to LOCAL_TOOL_TYPES, remove the variant files, or '
-        'pass --skip-unsupported.'
+        'Add the base to LOCAL_TOOL_TYPES, remove the variant files, or pass --skip-unsupported.'
     )
     raise RuntimeError('\n'.join(lines))
 
@@ -990,9 +987,7 @@ def bootstrap(
             ignore_dirs = list(main_registry.get('ignore_dirs') or [])
         except (reg.RegistryError, yaml.YAMLError, KeyError):
             pass
-    _link_dot_config_children(
-        dotfiles_dir, home_dir, 'common', ignore_dirs, dry_run, results
-    )
+    _link_dot_config_children(dotfiles_dir, home_dir, 'common', ignore_dirs, dry_run, results)
 
     # Phase 4: main registry
     processed = set()
