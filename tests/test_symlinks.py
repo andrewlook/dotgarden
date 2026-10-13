@@ -630,7 +630,7 @@ class TestBootstrapDotConfig(unittest.TestCase):
         with open(join(home_fish, 'pre-existing.fish'), 'w') as f:
             f.write('# pre-existing\n')
 
-        bootstrap(self.repo, self.home, 'macos')
+        bootstrap(self.repo, self.home, 'macos', force=True)
 
         # The directory is now a symlink to the repo.
         assert islink(home_fish)

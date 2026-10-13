@@ -71,6 +71,16 @@ def list_dot_config_children(dotfiles_dir, ignore_names=None):
     return sorted(result)
 
 
+def _backup_target(link):
+    """Move a conflicting destination aside without replacing any older backup."""
+    backup = link + '.bak'
+    number = 1
+    while os.path.lexists(backup):
+        backup = f'{link}.bak.{number}'
+        number += 1
+    os.rename(link, backup)
+
+
 def prepare_symlink_target(target, link):
     """Prepare a symlink destination, backing up any existing file.
 
@@ -83,7 +93,7 @@ def prepare_symlink_target(target, link):
     Side effects: backs up and removes conflicting files at `link`.
     """
     if os.path.islink(link):
-        old_target = os.path.realpath(os.readlink(link))
+        old_target = os.path.realpath(link)
         abs_target = os.path.realpath(target)
         if abs_target == old_target:
             return 'ok'
@@ -92,30 +102,14 @@ def prepare_symlink_target(target, link):
             os.unlink(link)
             return 'stale'
         # Live symlink pointing elsewhere — back up and remove
-        bakfile = link + '.bak'
-        if os.path.isdir(link):
-            if os.path.exists(bakfile):
-                shutil.rmtree(bakfile)
-            shutil.copytree(link, bakfile, symlinks=True)
-            shutil.rmtree(link)
-        else:
-            shutil.copyfile(link, bakfile)
-            os.remove(link)
+        _backup_target(link)
         return 'replaced'
 
     if not os.path.exists(link):
         return 'needed'
 
     # Regular file or directory — back up and remove
-    bakfile = link + '.bak'
-    if os.path.isdir(link):
-        if os.path.exists(bakfile):
-            shutil.rmtree(bakfile)
-        shutil.copytree(link, bakfile, symlinks=True)
-        shutil.rmtree(link)
-    else:
-        shutil.copyfile(link, bakfile)
-        os.remove(link)
+    _backup_target(link)
     return 'replaced'
 
 
@@ -410,8 +404,8 @@ def _write_dotfiles_env(home_dir, os_type, profile, overlay_dir):
 def _check_link_state(abs_link, abs_real):
     """Return the dry-run action label for a link at abs_link → abs_real."""
     if os.path.islink(abs_link):
-        old = os.path.abspath(os.readlink(abs_link))
-        if old == os.path.abspath(abs_real):
+        old = os.path.realpath(abs_link)
+        if old == os.path.realpath(abs_real):
             return 'ok'
         if not os.path.exists(abs_link):
             return 'would_repair'
@@ -905,6 +899,30 @@ def _generate_local_files(home_dir, all_variants, dry_run, results, skip_unsuppo
             results.append(('error', local_path, None, 'local'))
 
 
+def _bootstrap_conflicts(plan, dotfiles_dir, overlay_dir):
+    """Find live destinations not already managed by the active repos."""
+    roots = [os.path.realpath(root) for root in (dotfiles_dir, overlay_dir) if root]
+    conflicts = set()
+    for action, link, target, _phase in plan:
+        # .local outputs are generated state, not symlink destinations.
+        if target is None or action != 'would_update':
+            continue
+        if os.path.islink(link):
+            resolved = os.path.realpath(link)
+            for root in roots:
+                try:
+                    if os.path.commonpath([root, resolved]) == root:
+                        break
+                except ValueError:
+                    # Windows paths on separate drives have no common path.
+                    continue
+            else:
+                conflicts.add(link)
+            continue
+        conflicts.add(link)
+    return sorted(conflicts)
+
+
 def bootstrap(
     dotfiles_dir,
     home_dir,
@@ -914,6 +932,7 @@ def bootstrap(
     dry_run=False,
     overlay_dir=None,
     skip_unsupported=False,
+    force=False,
 ):
     """Bootstrap dotfiles by creating symlinks and generating .local files.
 
@@ -921,6 +940,10 @@ def bootstrap(
     by active OS/profile), and registered files. Generates .local override
     files for dotfiles with variants. In dry_run mode, reports what would
     happen without making changes.
+
+    Unmanaged destinations are refused before any writes unless force=True.
+    Replacements retain all older backups; generated .local outputs keep
+    their existing update behavior.
 
     If overlay_dir is provided, it is scanned as an additional layer after
     the main dotfiles_dir. Overlay entries override main entries on conflict.
@@ -934,6 +957,27 @@ def bootstrap(
         raise ValueError('os_type is required')
     results = []
     exclude_files = _compose_exclude_files(dotfiles_dir, overlay_dir)
+
+    if not dry_run and not force:
+        plan = bootstrap(
+            dotfiles_dir,
+            home_dir,
+            os_type,
+            profile=profile,
+            skip_registry=skip_registry,
+            dry_run=True,
+            overlay_dir=overlay_dir,
+            # Resolve unsupported generators only once, during the real run.
+            skip_unsupported=True,
+        )
+        conflicts = _bootstrap_conflicts(plan, dotfiles_dir, overlay_dir)
+        if conflicts:
+            paths = '\n'.join(f'  {path}' for path in conflicts)
+            raise RuntimeError(
+                f'Bootstrap would replace unmanaged destinations:\n{paths}\n'
+                'No changes made. Register these files first, or rerun with '
+                '--force to replace them with unique backups.'
+            )
 
     if not dry_run:
         _write_dotfiles_env(home_dir, os_type, profile, overlay_dir)

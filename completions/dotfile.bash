@@ -50,7 +50,7 @@ _dotfile() {
                     COMPREPLY=($(compgen -d -- "${cur}"))
                     ;;
                 *)
-                    COMPREPLY=($(compgen -W "--os --profile --skip-registry --overlay --dry-run" -- "${cur}"))
+                    COMPREPLY=($(compgen -W "--os --profile --skip-registry --overlay --dry-run --force" -- "${cur}"))
                     ;;
             esac
             ;;

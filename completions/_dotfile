@@ -65,6 +65,7 @@ _dotfile() {
                         '--profile[Profile]:profile:(work home)' \
                         '--skip-registry[Skip registered files, only bootstrap common/OS/profile]' \
                         '--overlay[Path to overlay directory with additional dotfiles]:overlay:_files -/' \
+                        '--force[Replace unmanaged destinations with unique backups]' \
                         '--dry-run[Show what would be done without making changes]'
                     ;;
             esac

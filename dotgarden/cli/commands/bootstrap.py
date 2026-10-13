@@ -44,6 +44,7 @@ def cmd_bootstrap(args):
             dry_run=args.dry_run,
             overlay_dir=overlay_dir,
             skip_unsupported=getattr(args, 'skip_unsupported', False),
+            force=getattr(args, 'force', False),
         )
     except RuntimeError as e:
         LOG.error(str(e))
