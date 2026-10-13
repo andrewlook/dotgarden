@@ -1,4 +1,4 @@
-"""Bootstrap must preserve unmanaged destinations and every older backup."""
+"""Bootstrap adopts home files and preserves unmanaged destinations/backups."""
 
 import os
 import subprocess
@@ -21,15 +21,48 @@ def layout(tmp_path):
     return repo, home
 
 
-def test_conflict_aborts_before_any_changes(layout):
+def test_unadoptable_directory_aborts_before_any_changes(layout):
     repo, home = layout
-    (home / '.zshrc').write_text('# personal commands\n')
+    (home / '.zshrc').mkdir()
+    (home / '.zshrc' / 'personal').write_text('# personal commands\n')
 
     with pytest.raises(RuntimeError, match='--force'):
         bootstrap(str(repo), str(home), 'macos')
 
-    assert (home / '.zshrc').read_text() == '# personal commands\n'
+    assert (home / '.zshrc' / 'personal').read_text() == '# personal commands\n'
     assert sorted(path.name for path in home.iterdir()) == ['.zshrc']
+
+
+def test_home_file_replaces_repo_template_and_bootstrap_continues(layout):
+    repo, home = layout
+    (repo / '.zshrc').write_text('# starter template\n')
+    (home / '.zshrc').write_text('# real personal config\n')
+    (home / '.zshrc.repo.bak').write_text('older repo backup\n')
+    (home / '.zshrc.bak').write_text('older home backup\n')
+
+    bootstrap(str(repo), str(home), 'macos')
+
+    assert (repo / '.zshrc').read_text() == '# real personal config\n'
+    assert (home / '.zshrc').is_symlink()
+    assert (home / '.zshrc').resolve() == repo / '.zshrc'
+    assert (home / '.zshrc.bak').read_text() == 'older home backup\n'
+    assert (home / '.zshrc.bak.1').read_text() == '# real personal config\n'
+    assert (home / '.zshrc.repo.bak').read_text() == 'older repo backup\n'
+    assert (home / '.zshrc.repo.bak.1').read_text() == '# starter template\n'
+    assert (home / '.zprofile').is_symlink()
+    assert (home / '.zprofile').resolve() == repo / '.zprofile'
+
+
+def test_identical_home_file_is_linked_without_template_backup(layout):
+    repo, home = layout
+    contents = (repo / '.zshrc').read_text()
+    (home / '.zshrc').write_text(contents)
+
+    bootstrap(str(repo), str(home), 'macos')
+
+    assert (home / '.zshrc').resolve() == repo / '.zshrc'
+    assert (home / '.zshrc.bak').read_text() == contents
+    assert not (home / '.zshrc.repo.bak').exists()
 
 
 def test_force_keeps_existing_backup_and_is_idempotent(layout):
@@ -119,7 +152,8 @@ def test_directory_symlink_backup_preserves_link_and_target(tmp_path):
 
 def test_cli_refuses_conflict_then_force_preserves_contents(layout):
     repo, home = layout
-    (home / '.zshrc').write_text('actual personal config')
+    (home / '.zshrc').mkdir()
+    (home / '.zshrc' / 'personal').write_text('actual personal config')
     environment = {
         key: value
         for key, value in os.environ.items()
@@ -137,7 +171,7 @@ def test_cli_refuses_conflict_then_force_preserves_contents(layout):
     refused = subprocess.run(command, env=environment, capture_output=True, text=True, check=False)
     assert refused.returncode != 0
     assert '--force' in refused.stderr
-    assert (home / '.zshrc').read_text() == 'actual personal config'
+    assert (home / '.zshrc' / 'personal').read_text() == 'actual personal config'
     assert not (home / '.zprofile').exists()
 
     forced = subprocess.run(
@@ -145,4 +179,36 @@ def test_cli_refuses_conflict_then_force_preserves_contents(layout):
     )
     assert forced.returncode == 0, forced.stderr
     assert (home / '.zshrc').resolve() == repo / '.zshrc'
-    assert (home / '.zshrc.bak').read_text() == 'actual personal config'
+    assert (home / '.zshrc.bak' / 'personal').read_text() == 'actual personal config'
+
+
+def test_cli_adopts_existing_file_over_repo_template(layout):
+    repo, home = layout
+    (repo / '.zshrc').write_text('# starter template\n')
+    (home / '.zshrc').write_text('# real personal config\n')
+    environment = {
+        key: value
+        for key, value in os.environ.items()
+        if not key.startswith(('DOTFILES', 'DOTFILE_'))
+    }
+    environment.update(HOME=str(home), DOTFILE_HOME=str(home), DOTFILES=str(repo))
+    result = subprocess.run(
+        [
+            sys.executable,
+            '-c',
+            'from dotgarden.cli import main; main()',
+            'bootstrap',
+            '--os',
+            'macos',
+        ],
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert (repo / '.zshrc').read_text() == '# real personal config\n'
+    assert (home / '.zshrc').resolve() == repo / '.zshrc'
+    assert (home / '.zshrc.repo.bak').read_text() == '# starter template\n'
+    assert (home / '.zshrc.bak').read_text() == '# real personal config\n'

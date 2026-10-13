@@ -111,13 +111,15 @@ What bootstrap does for each managed file:
 2. If `$HOME` has a symlink pointing at the right place → leave it.
 3. Broken symlinks are repaired. Live links already managed by the active
    repos can change targets.
-4. Unmanaged files, directories, or live symlinks → **refuse before making
+4. If both home and repo have regular files at the same destination, the home
+   file becomes the repo source and the repo version is saved as
+   `<home-path>.repo.bak`. Bootstrap then links home to the adopted file.
+5. Other unmanaged directories or live symlinks → **refuse before making
    changes**, unless you explicitly pass `--force`.
 
-Register existing settings first if you want to keep using them. To replace
-them with the repo's version, run `dotfile bootstrap --os macos --force`.
-Replacements move to `<path>.bak`, then `<path>.bak.1`, `<path>.bak.2`, etc.,
-without overwriting earlier backups. Symlink backups preserve the original
+The home's original file moves to `<path>.bak` when the symlink is created.
+Other replacements move to `<path>.bak`, then `<path>.bak.1`, `<path>.bak.2`,
+etc., without overwriting earlier backups. Symlink backups preserve the original
 link and leave its target alone. Generated `.local` files keep their existing
 update behavior.
 

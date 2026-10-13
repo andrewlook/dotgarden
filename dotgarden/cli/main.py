@@ -197,7 +197,7 @@ def _build_parser():
     bootstrap_parser.add_argument(
         '--force',
         action='store_true',
-        help='Replace unmanaged destinations, keeping unique .bak backups',
+        help='Use repo versions for conflicts, keeping unique backups',
     )
     bootstrap_parser.add_argument(
         '--skip-unsupported',

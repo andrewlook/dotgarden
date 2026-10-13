@@ -3,7 +3,7 @@
 ## Unreleased
 
 ### Changed
-- Bootstrap now refuses unmanaged symlink-destination conflicts before making changes. Use `dotfile register` to adopt existing settings or `dotfile bootstrap --force` to replace them explicitly; generated `.local` files retain their existing update behavior.
+- Bootstrap now adopts existing home files over matching repo files, preserves both copies, and continues linking. Unmanaged directories and live symlinks still require `--force`; generated `.local` files retain their existing update behavior.
 
 ### Fixed
 - Replaced destinations use unique `.bak`, `.bak.1`, etc. backups, preserving earlier backups and original symlinks. Correct relative symlinks are recognized without replacement.

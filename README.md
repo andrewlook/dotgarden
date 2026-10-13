@@ -140,14 +140,17 @@ Runs every symlink and `.local` generator from a clean slate. Safe to re-run.
 - `--profile` — activates a profile's variant files and registry entries.
 - `--overlay` — layers a second repo on top (see [GUIDE.md § Overlay](https://github.com/andrewlook/dotgarden/blob/main/GUIDE.md#9-overlay--carve-out-private-content)).
 - `--dry-run` — print the plan without touching the filesystem.
-- `--force` — replace unmanaged files, directories, or live symlinks with unique backups.
+- `--force` — use repo versions for conflicts, keeping unique backups.
 - `--skip-registry` — only handle root + `.config/*` conventions, skip registered entries.
 - `--skip-unsupported` — silently skip `.local` generation for tool types with no known include syntax.
 
-Bootstrap refuses unmanaged conflicts before changing any files. Register your
-existing configuration first to keep using it, or pass `--force` to replace it.
-Correct symlinks stay unchanged; links already managed by the active main/overlay
-repos can change targets, and broken links are repaired automatically.
+When a regular file already exists at home and in the repo, bootstrap adopts the
+home version into the repo, keeps the repo version as `<home-path>.repo.bak`, then
+links home to the adopted file. This preserves real settings over starter
+content and updates the dotfiles repo. Other unmanaged directories and live
+symlinks are refused unless you pass `--force`. Correct symlinks stay unchanged;
+links managed by the active main/overlay repos can change targets, and broken
+links are repaired automatically.
 
 Replaced destinations are moved to `<path>.bak`, then `<path>.bak.1`,
 `<path>.bak.2`, etc.; existing backups are never overwritten. Symlink backups
