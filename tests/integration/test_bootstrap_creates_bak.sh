@@ -15,7 +15,7 @@ echo '# PRE-EXISTING USER CONTENT' > "$TEST_HOME/.gitconfig"
 assert_regular_file "$TEST_HOME/.gitconfig"
 
 assert_exit_zero "bootstrap (conflict with regular file)" \
-    dotfile bootstrap --os linux
+    dotfile bootstrap --os linux --force
 
 # After bootstrap: .gitconfig is now a symlink, old content preserved in .bak
 assert_symlink_to "$TEST_HOME/.gitconfig"      "$TEST_REPO/.gitconfig"

@@ -3,6 +3,7 @@
 import logging
 import os
 import shutil
+import tempfile
 
 import yaml
 
@@ -71,6 +72,22 @@ def list_dot_config_children(dotfiles_dir, ignore_names=None):
     return sorted(result)
 
 
+def _unique_backup_path(path, suffix='.bak'):
+    """Return the first unused backup name for path and suffix."""
+    backup = path + suffix
+    number = 1
+    while os.path.lexists(backup):
+        backup = f'{path}{suffix}.{number}'
+        number += 1
+    return backup
+
+
+def _backup_target(link):
+    """Move a conflicting destination aside without replacing any older backup."""
+    backup = _unique_backup_path(link)
+    os.rename(link, backup)
+
+
 def prepare_symlink_target(target, link):
     """Prepare a symlink destination, backing up any existing file.
 
@@ -83,7 +100,7 @@ def prepare_symlink_target(target, link):
     Side effects: backs up and removes conflicting files at `link`.
     """
     if os.path.islink(link):
-        old_target = os.path.realpath(os.readlink(link))
+        old_target = os.path.realpath(link)
         abs_target = os.path.realpath(target)
         if abs_target == old_target:
             return 'ok'
@@ -92,30 +109,14 @@ def prepare_symlink_target(target, link):
             os.unlink(link)
             return 'stale'
         # Live symlink pointing elsewhere — back up and remove
-        bakfile = link + '.bak'
-        if os.path.isdir(link):
-            if os.path.exists(bakfile):
-                shutil.rmtree(bakfile)
-            shutil.copytree(link, bakfile, symlinks=True)
-            shutil.rmtree(link)
-        else:
-            shutil.copyfile(link, bakfile)
-            os.remove(link)
+        _backup_target(link)
         return 'replaced'
 
     if not os.path.exists(link):
         return 'needed'
 
     # Regular file or directory — back up and remove
-    bakfile = link + '.bak'
-    if os.path.isdir(link):
-        if os.path.exists(bakfile):
-            shutil.rmtree(bakfile)
-        shutil.copytree(link, bakfile, symlinks=True)
-        shutil.rmtree(link)
-    else:
-        shutil.copyfile(link, bakfile)
-        os.remove(link)
+    _backup_target(link)
     return 'replaced'
 
 
@@ -410,8 +411,8 @@ def _write_dotfiles_env(home_dir, os_type, profile, overlay_dir):
 def _check_link_state(abs_link, abs_real):
     """Return the dry-run action label for a link at abs_link → abs_real."""
     if os.path.islink(abs_link):
-        old = os.path.abspath(os.readlink(abs_link))
-        if old == os.path.abspath(abs_real):
+        old = os.path.realpath(abs_link)
+        if old == os.path.realpath(abs_real):
             return 'ok'
         if not os.path.exists(abs_link):
             return 'would_repair'
@@ -905,6 +906,100 @@ def _generate_local_files(home_dir, all_variants, dry_run, results, skip_unsuppo
             results.append(('error', local_path, None, 'local'))
 
 
+def _files_have_same_contents(first, second):
+    """Compare regular-file contents without trusting size or timestamps."""
+    if os.path.getsize(first) != os.path.getsize(second):
+        return False
+    with open(first, 'rb') as left, open(second, 'rb') as right:
+        while True:
+            left_chunk = left.read(1024 * 1024)
+            right_chunk = right.read(1024 * 1024)
+            if left_chunk != right_chunk:
+                return False
+            if not left_chunk:
+                return True
+
+
+def _final_bootstrap_actions(plan):
+    """Return the last planned action for each destination path."""
+    final = {}
+    for action, link, target, phase in plan:
+        final[link] = (action, target, phase)
+    return final
+
+
+def _can_adopt_home_file(link, target):
+    """Whether a regular home file can safely become the managed source."""
+    return (
+        not os.path.islink(link)
+        and os.path.isfile(link)
+        and not os.path.islink(target)
+        and os.path.isfile(target)
+    )
+
+
+def _adopt_home_file(link, target):
+    """Promote an existing home file over its repo copy, preserving both."""
+    target_dir = os.path.dirname(target) or '.'
+    temp_fd, temp_path = tempfile.mkstemp(prefix='.dotgarden-adopt-', dir=target_dir)
+    os.close(temp_fd)
+    repo_backup = _unique_backup_path(link, '.repo.bak')
+    try:
+        shutil.copy2(link, temp_path)
+        os.rename(target, repo_backup)
+        try:
+            os.replace(temp_path, target)
+        except OSError:
+            if not os.path.lexists(target):
+                os.rename(repo_backup, target)
+            raise
+    finally:
+        if os.path.lexists(temp_path):
+            os.remove(temp_path)
+
+
+def _bootstrap_adoptions(final_actions):
+    """Find regular home files that should replace their repo counterparts."""
+    adoptions = []
+    for link, (action, target, _phase) in final_actions.items():
+        if action != 'would_update' or target is None:
+            continue
+        if not _can_adopt_home_file(link, target):
+            continue
+        if not _files_have_same_contents(link, target):
+            adoptions.append((link, target))
+    return adoptions
+
+
+def _bootstrap_conflicts(final_actions, adoptions, dotfiles_dir, overlay_dir):
+    """Find live destinations not already managed or safely adoptable."""
+    roots = [os.path.realpath(root) for root in (dotfiles_dir, overlay_dir) if root]
+    adoption_links = {link for link, _target in adoptions}
+    conflicts = set()
+    for link, (action, target, _phase) in final_actions.items():
+        # .local outputs are generated state, not symlink destinations.
+        if target is None or action != 'would_update':
+            continue
+        if link in adoption_links:
+            continue
+        if _can_adopt_home_file(link, target) and _files_have_same_contents(link, target):
+            continue
+        if os.path.islink(link):
+            resolved = os.path.realpath(link)
+            for root in roots:
+                try:
+                    if os.path.commonpath([root, resolved]) == root:
+                        break
+                except ValueError:
+                    # Windows paths on separate drives have no common path.
+                    continue
+            else:
+                conflicts.add(link)
+            continue
+        conflicts.add(link)
+    return sorted(conflicts)
+
+
 def bootstrap(
     dotfiles_dir,
     home_dir,
@@ -914,6 +1009,7 @@ def bootstrap(
     dry_run=False,
     overlay_dir=None,
     skip_unsupported=False,
+    force=False,
 ):
     """Bootstrap dotfiles by creating symlinks and generating .local files.
 
@@ -921,6 +1017,10 @@ def bootstrap(
     by active OS/profile), and registered files. Generates .local override
     files for dotfiles with variants. In dry_run mode, reports what would
     happen without making changes.
+
+    Existing home files replace their repo copies before being linked; both
+    copies are backed up. Other unmanaged destinations are refused unless
+    force=True. Generated .local outputs keep their existing update behavior.
 
     If overlay_dir is provided, it is scanned as an additional layer after
     the main dotfiles_dir. Overlay entries override main entries on conflict.
@@ -934,6 +1034,38 @@ def bootstrap(
         raise ValueError('os_type is required')
     results = []
     exclude_files = _compose_exclude_files(dotfiles_dir, overlay_dir)
+
+    if not dry_run and not force:
+        plan = bootstrap(
+            dotfiles_dir,
+            home_dir,
+            os_type,
+            profile=profile,
+            skip_registry=skip_registry,
+            dry_run=True,
+            overlay_dir=overlay_dir,
+            # Resolve unsupported generators only once, during the real run.
+            skip_unsupported=True,
+        )
+        final_actions = _final_bootstrap_actions(plan)
+        adoptions = _bootstrap_adoptions(final_actions)
+        conflicts = _bootstrap_conflicts(
+            final_actions, adoptions, dotfiles_dir, overlay_dir
+        )
+        if conflicts:
+            paths = '\n'.join(f'  {path}' for path in conflicts)
+            raise RuntimeError(
+                f'Bootstrap would replace unmanaged destinations:\n{paths}\n'
+                'No changes made. Resolve these paths or rerun with --force '
+                'to replace them with unique backups.'
+            )
+        for link, target in adoptions:
+            try:
+                _adopt_home_file(link, target)
+            except OSError as exc:
+                raise RuntimeError(
+                    f'Could not adopt {link} into {target}; its home copy is intact.'
+                ) from exc
 
     if not dry_run:
         _write_dotfiles_env(home_dir, os_type, profile, overlay_dir)

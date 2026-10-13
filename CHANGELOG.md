@@ -2,7 +2,11 @@
 
 ## Unreleased
 
+### Changed
+- Bootstrap now adopts existing home files over matching repo files, preserves both copies, and continues linking. Unmanaged directories and live symlinks still require `--force`; generated `.local` files retain their existing update behavior.
+
 ### Fixed
+- Replaced destinations use unique `.bak`, `.bak.1`, etc. backups, preserving earlier backups and original symlinks. Correct relative symlinks are recognized without replacement.
 - A registry entry that can't be symlinked no longer aborts the whole bootstrap. Because `.local` generation is the final phase, one unwritable `source_path` (a path that doesn't exist on this host, say) used to leave every symlink in place but no `.local` hubs at all — and since git ignores a missing `include.path` without complaint, the visible symptom was an unset `user.name`/`user.email` rather than anything naming the real failure. Such entries are now reported as `(failed)` and bootstrap exits non-zero, so the error stays loud without taking the rest of the config down with it
 
 ## v0.3.1 (2026-04-27)

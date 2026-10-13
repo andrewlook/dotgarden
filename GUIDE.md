@@ -109,13 +109,19 @@ What bootstrap does for each managed file:
 
 1. If `$HOME` doesn't have a file at the link location → create the symlink.
 2. If `$HOME` has a symlink pointing at the right place → leave it.
-3. If `$HOME` has a real file (or symlink to the wrong place) → **move it aside
-   as `<path>.bak`**, then create the correct symlink.
+3. Broken symlinks are repaired. Live links already managed by the active
+   repos can change targets.
+4. If both home and repo have regular files at the same destination, the home
+   file becomes the repo source and the repo version is saved as
+   `<home-path>.repo.bak`. Bootstrap then links home to the adopted file.
+5. Other unmanaged directories or live symlinks → **refuse before making
+   changes**, unless you explicitly pass `--force`.
 
-The `.bak` behavior is the safety net for first-time bootstrap: any live
-`~/.gitconfig` you haven't registered yet gets preserved at `~/.gitconfig.bak`
-before it's replaced. If you wanted to keep that file, register it (or copy
-its contents into the repo) before re-running bootstrap.
+The home's original file moves to `<path>.bak` when the symlink is created.
+Other replacements move to `<path>.bak`, then `<path>.bak.1`, `<path>.bak.2`,
+etc., without overwriting earlier backups. Symlink backups preserve the original
+link and leave its target alone. Generated `.local` files keep their existing
+update behavior.
 
 The `.dotfiles_env` file in `$HOME` remembers the OS, profile, and overlay
 from the last bootstrap, so later runs can just be `dotfile bootstrap` with

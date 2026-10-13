@@ -195,6 +195,11 @@ def _build_parser():
         '--dry-run', action='store_true', help='Show what would be done without making changes'
     )
     bootstrap_parser.add_argument(
+        '--force',
+        action='store_true',
+        help='Use repo versions for conflicts, keeping unique backups',
+    )
+    bootstrap_parser.add_argument(
         '--skip-unsupported',
         action='store_true',
         help='Skip .local generation for base files whose tool type has no known '
