@@ -1246,25 +1246,20 @@ def get_local_status(dotfiles_dir, home_dir, os_type, profile=None, overlay_dir=
     }
     """
     results = []
-    variants = find_variant_files(dotfiles_dir, os_type, profile)
-    if overlay_dir and os.path.isdir(overlay_dir):
-        # Mirror bootstrap's _collect_variants merge: overlay's bare `.foo`
-        # contributes `.<profile>.foo` as a variant of `.foo`.
-        try:
-            overlay_profile = _read_overlay_profile(overlay_dir)
-            overlay_variants = _collect_overlay_variants(
-                overlay_dir, overlay_profile, list(NOT_DOTFILES)
-            )
-            for base, vlist in overlay_variants.items():
-                variants[base] = list(dict.fromkeys(variants.get(base, []) + vlist))
-        except reg.RegistryError:
-            # Malformed overlay — let bootstrap report. Don't double-warn here.
-            pass
+    # Share bootstrap's collection logic, including absolute nested overlays.
+    variants = _collect_variants(
+        dotfiles_dir,
+        overlay_dir,
+        os_type,
+        profile,
+        exclude_files=_compose_exclude_files(dotfiles_dir, overlay_dir),
+    )
 
     for base_dotfile, variant_list in sorted(variants.items()):
         local_name = f'{base_dotfile}.local'
         local_path = os.path.join(home_dir, local_name)
         base_path = os.path.join(home_dir, base_dotfile)
+        nested = base_dotfile.startswith(f'{DOT_CONFIG_DIR}/')
 
         info = {
             'dotfile': base_dotfile,
@@ -1276,10 +1271,11 @@ def get_local_status(dotfiles_dir, home_dir, os_type, profile=None, overlay_dir=
             'issues': [],
         }
 
-        # Check variants are symlinked into home
+        # Nested files ride inside a directory symlink or live in the overlay;
+        # they must exist, but do not need an individual symlink.
         for variant in sorted(variant_list):
             variant_home = os.path.join(home_dir, variant)
-            linked = os.path.islink(variant_home)
+            linked = os.path.isfile(variant_home) if nested else os.path.islink(variant_home)
             info['variants'].append((variant, linked))
 
         if not info['local_exists']:
@@ -1301,7 +1297,8 @@ def get_local_status(dotfiles_dir, home_dir, os_type, profile=None, overlay_dir=
             try:
                 with open(base_path, 'r') as f:
                     base_contents = f.read()
-                info['base_includes_local'] = local_name in base_contents
+                include_name = os.path.basename(local_name) if nested else local_name
+                info['base_includes_local'] = include_name in base_contents
                 if not info['base_includes_local']:
                     info['issues'].append(f'{base_dotfile} missing include')
             except (OSError, UnicodeDecodeError):

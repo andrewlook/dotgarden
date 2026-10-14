@@ -38,9 +38,9 @@ _pass "created .config/fish/config.linux.fish"
 
 # Base file got the fish include appended.
 assert_file_contains "$TEST_REPO/.config/fish/config.fish" \
-    "test -e ~/.config/fish/config.fish.local"
+    "test -f ~/.config/fish/config.fish.local"
 assert_file_contains "$TEST_REPO/.config/fish/config.fish" \
-    "and source ~/.config/fish/config.fish.local"
+    "source ~/.config/fish/config.fish.local"
 
 # Idempotent — re-running should not duplicate the include line.
 assert_exit_zero "re-specialize is idempotent" \

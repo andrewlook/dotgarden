@@ -37,9 +37,9 @@ assert_symlink_to "$TEST_HOME/.config/fish" "$TEST_REPO/.config/fish"
 # .local file lives next to the base (via the directory symlink).
 REPO_LOCAL="$TEST_REPO/.config/fish/config.fish.local"
 assert_regular_file "$REPO_LOCAL"
-assert_file_contains "$REPO_LOCAL" "test -e ~/.config/fish/config.linux.fish"
-assert_file_contains "$REPO_LOCAL" "and source ~/.config/fish/config.linux.fish"
-assert_file_contains "$REPO_LOCAL" "test -e ~/.config/fish/config.work.fish"
+assert_file_contains "$REPO_LOCAL" "test -f ~/.config/fish/config.linux.fish"
+assert_file_contains "$REPO_LOCAL" "source ~/.config/fish/config.linux.fish"
+assert_file_contains "$REPO_LOCAL" "test -f ~/.config/fish/config.work.fish"
 # Wrong-OS variant must NOT be referenced.
 assert_file_not_contains "$REPO_LOCAL" "config.macos.fish"
 # Reachable through the home symlink too.

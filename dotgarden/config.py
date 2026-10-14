@@ -177,7 +177,10 @@ def format_local_include(tool_type, variant_filename):
     elif tool_type == 'tmux':
         return f'source-file -q {runtime_path}'
     elif tool_type == 'fish':
-        return f'test -e {runtime_path}; and source {runtime_path}'
+        return (
+            f'if test -f {runtime_path}; source {runtime_path}; '
+            f"else; printf 'dotfiles: config not found, not sourced: %s\\n' {runtime_path} >&2; end"
+        )
     else:
         return f'# include {variant_filename}'
 

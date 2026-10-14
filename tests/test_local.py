@@ -2,6 +2,7 @@
 
 import os
 import shutil
+import subprocess
 import tempfile
 import unittest
 from os import makedirs, symlink  # noqa: TID251
@@ -18,6 +19,7 @@ from dotgarden.config import (
     parse_nested_variant,
 )
 from dotgarden.symlinks import (
+    bootstrap,
     build_local_contents,
     check_local_health,
     discover_overlay_managed,
@@ -89,7 +91,9 @@ FORMAT_CASES = [
     (
         'fish',
         '.config/fish/config.macos.fish',
-        'test -e ~/.config/fish/config.macos.fish; and source ~/.config/fish/config.macos.fish',
+        'if test -f ~/.config/fish/config.macos.fish; source ~/.config/fish/config.macos.fish; '
+        "else; printf 'dotfiles: config not found, not sourced: %s\\n' "
+        '~/.config/fish/config.macos.fish >&2; end',
     ),
 ]
 
@@ -566,8 +570,8 @@ class TestFishLocalGeneration(unittest.TestCase):
         self._touch_fish('config.fish', 'config.macos.fish')
         results = generate_local_files(self.repo, self.home, 'macos')
         _, _, contents = results[0]
-        assert 'test -e ~/.config/fish/config.macos.fish' in contents
-        assert 'and source ~/.config/fish/config.macos.fish' in contents
+        assert 'test -f ~/.config/fish/config.macos.fish' in contents
+        assert 'source ~/.config/fish/config.macos.fish' in contents
 
     def test_fish_local_includes_multiple_variants(self):
         self._touch_fish('config.fish', 'config.macos.fish', 'config.work.fish')
@@ -828,3 +832,62 @@ class TestDiscoverOverlayManaged(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+@pytest.mark.parametrize('present', [True, False])
+def test_generated_fish_include_warns_without_aborting(tmp_path, present):
+    fish = shutil.which('fish')
+    if fish is None:
+        pytest.skip('fish is not installed')
+    variant = tmp_path / 'config.work.fish'
+    if present:
+        variant.write_text('echo LOADED\n')
+    script = format_local_include('fish', str(variant)) + '; echo SURVIVED'
+    result = subprocess.run(  # noqa: S603 — executable is found on PATH; script uses only test files
+        [fish, '--no-config', '-c', script],
+        env={'TERM': 'dumb', 'XDG_CONFIG_HOME': str(tmp_path / 'fish-config')},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0
+    assert 'SURVIVED' in result.stdout
+    if present:
+        assert 'LOADED' in result.stdout
+        assert result.stderr == ''
+    else:
+        assert 'config not found, not sourced' in result.stderr
+        assert str(variant) in result.stderr
+        assert result.stderr.endswith('\n')
+
+
+@pytest.mark.parametrize('os_variant,overlay_variant', [(True, False), (False, True), (True, True)])
+def test_nested_fish_status_matches_bootstrap(tmp_path, os_variant, overlay_variant):
+    repo = tmp_path / 'repo'
+    home = tmp_path / 'home'
+    overlay = tmp_path / 'overlay'
+    fish_dir = repo / '.config/fish'
+    fish_dir.mkdir(parents=True)
+    home.mkdir()
+    (fish_dir / 'config.fish').write_text(
+        '__dotfiles_source "$__fish_config_dir/config.fish.local"\n'
+    )
+    if os_variant:
+        (fish_dir / 'config.macos.fish').write_text('# OS config\n')
+    if overlay_variant:
+        overlay_fish = overlay / '.config/fish'
+        overlay_fish.mkdir(parents=True)
+        (overlay / '__registry__.yaml').write_text("version: '3.0'\nprofile: work\n")
+        (overlay / '.gitignore').write_text('# Excluded metadata\n')
+        (overlay_fish / 'config.work.fish').write_text('# Work config\n')
+    overlay_dir = str(overlay) if overlay_variant else None
+    bootstrap(str(repo), str(home), 'macos', profile='work', overlay_dir=overlay_dir)
+    results = get_local_status(str(repo), str(home), 'macos', 'work', overlay_dir)
+    assert len(results) == 1
+    info = next(result for result in results if result['dotfile'] == '.config/fish/config.fish')
+    assert info['local_exists']
+    assert info['local_fresh']
+    assert info['base_includes_local']
+    assert info['issues'] == []
+    assert len(info['variants']) == int(os_variant) + int(overlay_variant)
+    assert all(available for _, available in info['variants'])

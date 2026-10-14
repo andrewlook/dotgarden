@@ -193,8 +193,8 @@ class TestSpecializeNested(SpecializeTestCase):
         cmd_specialize(self._args('os', '.config/fish/config.fish'))
 
         content = self._read('.config/fish/config.fish')
-        assert 'test -e' in content
-        assert 'and source' in content
+        assert 'test -f' in content
+        assert 'source ' in content
         assert 'config.fish.local' in content
 
     def test_nested_dry_run(self):

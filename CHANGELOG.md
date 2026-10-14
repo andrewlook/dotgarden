@@ -3,6 +3,8 @@
 ## Unreleased
 
 ### Fixed
+- Generated fish includes report missing variants without aborting shell startup.
+- Nested `.config` status checks recognize direct overlay files, directory symlinks, and includes based on the config directory.
 - A registry entry that can't be symlinked no longer aborts the whole bootstrap. Because `.local` generation is the final phase, one unwritable `source_path` (a path that doesn't exist on this host, say) used to leave every symlink in place but no `.local` hubs at all — and since git ignores a missing `include.path` without complaint, the visible symptom was an unset `user.name`/`user.email` rather than anything naming the real failure. Such entries are now reported as `(failed)` and bootstrap exits non-zero, so the error stays loud without taking the rest of the config down with it
 
 ## v0.3.1 (2026-04-27)
